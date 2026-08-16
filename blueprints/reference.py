@@ -11,6 +11,7 @@ import re
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
 
+import balances as bal
 from blueprints.auth import admin_required
 from db import execute, query, query_one, today_for, utc_now
 from money import MoneyError, parse_to_minor
@@ -103,11 +104,19 @@ def accounts():
         if row["parent_account_id"] is not None:
             children.setdefault(row["parent_account_id"], []).append(row)
 
+    # Balances deliberately skip visibility_sql() — see balances.py for why a
+    # filtered balance is a wrong number rather than a partial one.
+    money = bal.balances_for_display()
+    overdrawn = {r["id"]: bal.is_overdrawn(r, money.get(r["id"])) for r in rows}
+
     return render_template(
         "settings/accounts.html",
         accounts=[r for r in rows if r["parent_account_id"] is None],
         children=children,
         parent_types=PARENT_TYPES,
+        balances=money,
+        overdrawn=overdrawn,
+        any_overdrawn=any(overdrawn.values()),
     )
 
 

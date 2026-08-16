@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from db import base_currency, execute, query, query_one, today_for, utc_now
 from money import MoneyError, convert_to_base, format_minor, parse_to_minor
+from visibility import can_edit
 
 DIRECTIONS = ("spend", "income", "transfer")
 
@@ -224,7 +225,8 @@ def _account(account_id: int | None, field: str):
     return row
 
 
-def _check_cash_withdrawal(account, amount_minor: int, currency: str, occurred_on: str) -> None:
+def _check_cash_withdrawal(account, amount_minor: int, currency: str, occurred_on: str,
+                           exclude_id: int | None = None) -> None:
     """Money landing in cash came out of a card, and the card is the record.
 
     "The bank gave me cash" is never the whole truth: an ATM or a counter
@@ -244,8 +246,10 @@ def _check_cash_withdrawal(account, amount_minor: int, currency: str, occurred_o
                 "SELECT COALESCE(SUM(t.amount_minor), 0) AS taken FROM transactions t "
                 "JOIN accounts a ON a.id = t.counter_account_id "
                 "WHERE t.account_id = ? AND t.direction = 'transfer' AND a.type = 'cash' "
-                "  AND t.occurred_on = ? AND t.currency = ?",
-                (account["id"], occurred_on, currency),
+                # An edit must not be measured against its own old amount, or
+                # raising 500 to 600 reads as 1100 against the day's ceiling.
+                "  AND t.occurred_on = ? AND t.currency = ? AND t.id <> ?",
+                (account["id"], occurred_on, currency, exclude_id or -1),
             )["taken"]
 
             if taken + amount_minor > limit:
@@ -291,7 +295,8 @@ def _check_cash_withdrawal(account, amount_minor: int, currency: str, occurred_o
 
 
 def _check_credit_limit(
-    account, amount_minor: int, currency: str, fx_rate, occurred_on: str, base: str
+    account, amount_minor: int, currency: str, fx_rate, occurred_on: str, base: str,
+    exclude_id: int | None = None,
 ) -> None:
     """A credit limit is a ceiling on a month, so a month is what gets summed.
 
@@ -319,8 +324,10 @@ def _check_credit_limit(
     rows = query(
         "SELECT amount_minor, currency, fx_rate_to_base FROM transactions "
         "WHERE account_id = ? AND direction = 'spend' AND occurred_on LIKE ? "
-        f"  AND currency {'<>' if international else '='} ?",
-        (account["id"], f"{month}-%", account["currency"]),
+        # Same reason as the withdrawal ceiling: an edit is not competing with
+        # the version of itself it is replacing.
+        f"  AND currency {'<>' if international else '='} ? AND id <> ?",
+        (account["id"], f"{month}-%", account["currency"], exclude_id or -1),
     )
 
     # Conversion in Python, in Decimal, never as SUM(amount * rate) in SQL —
@@ -391,10 +398,16 @@ def _fx_rate(raw: str, currency: str, base: str) -> float | None:
 # ------------------------------------------------------------------- create
 
 
-def create_transaction(user, form) -> int:
-    """Validate and insert. Returns the new transaction id.
+def _prepare(user, form, exclude_id: int | None = None) -> dict:
+    """Validate a submission and return the columns it becomes.
+
+    The single place the rules live. `create_transaction` and
+    `update_transaction` both come through here, so an edit cannot slip past a
+    check that an insert has to pass — rule 6's "there is no second path" means
+    no second set of rules either, not just no second SQL statement.
 
     `form` is any mapping — request.form in the app, a plain dict in tests.
+    `exclude_id` is the row being replaced, kept out of the period sums.
     """
     base = base_currency()
 
@@ -482,7 +495,8 @@ def create_transaction(user, form) -> int:
     receiptless = 1 if str(form.get("receiptless") or "0").strip() in ("1", "on", "true") else 0
 
     if direction == "spend":
-        _check_credit_limit(account, amount_minor, currency, fx_rate, occurred_on, base)
+        _check_credit_limit(account, amount_minor, currency, fx_rate, occurred_on, base,
+                            exclude_id=exclude_id)
 
     # Cash is a pocket, not an account with a transfer facility. What leaves it
     # is spending; what enters it is income, a reimbursement, or a withdrawal
@@ -502,7 +516,8 @@ def create_transaction(user, form) -> int:
             raise EntryError("Pick two different accounts.", "counter_account")
 
         if counter["type"] == "cash":
-            _check_cash_withdrawal(account, amount_minor, currency, occurred_on)
+            _check_cash_withdrawal(account, amount_minor, currency, occurred_on,
+                                   exclude_id=exclude_id)
 
         counter_currency = counter["currency"]
         raw_counter = (form.get("counter_amount") or "").strip()
@@ -527,21 +542,65 @@ def create_transaction(user, form) -> int:
         category_id = category_id if form.get("category_id") else None
         is_online = 0
 
+    return {
+        "occurred_on": occurred_on, "direction": direction, "amount_minor": amount_minor,
+        "currency": currency, "fx_rate_to_base": fx_rate, "account_id": account["id"],
+        "counter_account_id": counter_account_id, "counter_amount_minor": counter_amount_minor,
+        "counter_currency": counter_currency, "merchant_id": merchant_id,
+        "category_id": category_id, "is_online": is_online, "note": note,
+        "is_shared": is_shared, "receiptless": receiptless,
+    }
+
+
+_COLUMNS = (
+    "occurred_on", "direction", "amount_minor", "currency", "fx_rate_to_base",
+    "account_id", "counter_account_id", "counter_amount_minor", "counter_currency",
+    "merchant_id", "category_id", "is_online", "note", "is_shared", "receiptless",
+)
+
+
+def create_transaction(user, form) -> int:
+    """Validate and insert. Returns the new transaction id."""
+    cols = _prepare(user, form)
     now = utc_now()
+    placeholders = ",".join("?" for _ in _COLUMNS)
     cur = execute(
-        "INSERT INTO transactions ("
-        "  user_id, occurred_on, direction, amount_minor, currency, fx_rate_to_base,"
-        "  account_id, counter_account_id, counter_amount_minor, counter_currency,"
-        "  merchant_id, category_id, is_online, note, is_shared, receiptless,"
-        "  created_at, updated_at"
-        ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (
-            user["id"], occurred_on, direction, amount_minor, currency, fx_rate,
-            account["id"], counter_account_id, counter_amount_minor, counter_currency,
-            merchant_id, category_id, is_online, note, is_shared, receiptless, now, now,
-        ),
+        f"INSERT INTO transactions (user_id, {', '.join(_COLUMNS)}, created_at, updated_at) "
+        f"VALUES (?, {placeholders}, ?, ?)",
+        (user["id"], *(cols[c] for c in _COLUMNS), now, now),
     )
     return cur.lastrowid
+
+
+def update_transaction(txn_id: int, user, form) -> None:
+    """Validate and replace an existing row.
+
+    The owner never changes: editing someone's transaction — which only admin
+    can do — must not quietly reassign whose it is, because `user_id` is what
+    the visibility rule keys off. Changing it would move the row out of its
+    owner's sight.
+    """
+    existing = query_one("SELECT * FROM transactions WHERE id = ?", (txn_id,))
+    if existing is None:
+        raise EntryError("That entry no longer exists.", "")
+    if not can_edit(user, existing):
+        raise EntryError("That entry belongs to someone else.", "")
+
+    cols = _prepare(user, form, exclude_id=txn_id)
+    assignments = ", ".join(f"{c} = ?" for c in _COLUMNS)
+    execute(
+        f"UPDATE transactions SET {assignments}, updated_at = ? WHERE id = ?",
+        (*(cols[c] for c in _COLUMNS), utc_now(), txn_id),
+    )
+
+
+def delete_transaction(txn_id: int, user) -> bool:
+    """Remove a transaction. Attachments follow it by ON DELETE CASCADE."""
+    existing = query_one("SELECT id, user_id FROM transactions WHERE id = ?", (txn_id,))
+    if existing is None or not can_edit(user, existing):
+        return False
+    execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
+    return True
 
 
 # --------------------------------------------------------------------- undo

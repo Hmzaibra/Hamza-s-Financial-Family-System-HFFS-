@@ -22,6 +22,23 @@
   </span>
 {% endmacro %}
 
+{# A card and an Instapay handle have no balance of their own: they reach the
+   account behind them. Showing the parent's figure answers "how much can I
+   spend with this", which is the only question the row exists to answer — and
+   "via <account>" is what stops it reading as a second pot of money. #}
+{% macro balance(a, is_child=false, parent_name='') %}
+  {% set b = balances.get(a.id) %}
+  {% if b %}
+    <span class="bal {% if overdrawn.get(a.id) %}bal--over{% endif %}">
+      <span class="bal__amount num">{{ b.minor|money(b.currency) }}</span>
+      <span class="bal__note">
+        {{ b.currency }}{% if is_child %} · via {{ parent_name }}{% endif %}
+        {%- if b.approximate %} · approx{% endif %}
+      </span>
+    </span>
+  {% endif %}
+{% endmacro %}
+
 {% macro meta(a) %}
   <span class="list__meta">
     {{ a.type|replace('_', ' ') }} · {{ a.currency }}
@@ -37,6 +54,17 @@
     <a class="btn btn--quiet" href="{{ url_for('reference.account_form') }}">Add</a>
   </div>
 
+  {% if any_overdrawn %}
+    {# Warn, never block. A balance below zero is far more often a missing
+       opening balance or an unlogged income than a purchase that should not
+       have happened, and refusing the save would punish the person for the
+       ledger being behind. #}
+    <p class="flash flash--warn" role="status">
+      Something is below zero. That usually means an opening balance or an
+      income is missing, not that a purchase was wrong.
+    </p>
+  {% endif %}
+
   <div class="card">
     {% if accounts %}
       <ul class="list">
@@ -48,6 +76,7 @@
                 {{ meta(a) }}
               </span>
               {% if not a.is_active %}<span class="badge badge--off">archived</span>{% endif %}
+              {{ balance(a) }}
             </a>
 
             {# Linked cards and handles live under the account they draw on. #}
@@ -59,6 +88,7 @@
                   {{ meta(child) }}
                 </span>
                 {% if not child.is_active %}<span class="badge badge--off">archived</span>{% endif %}
+                {{ balance(child, true, a.name) }}
               </a>
             {% endfor %}
 

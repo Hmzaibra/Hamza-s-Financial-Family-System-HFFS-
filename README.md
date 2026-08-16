@@ -2,12 +2,11 @@
 
 Self-hosted household expense log. Flask + SQLite, no build step, no CDN.
 
-**Phase 0 is complete.** **Phase 1 is half done**: the entry form, the account
-model and the reference data behind them are built and verified; the transaction
-list, filters, edit/delete, account balances and the monthly summary are next.
-See `PHASE-1-NOTES.md` for what was decided along the way, and
-[Where this goes next](#where-this-goes-next) for what is left and what it has to
-build on.
+**Phases 0 and 1 are complete.** The entry form, the account model, balances,
+the month breakdown, the transaction list with filters, and edit/delete are all
+built and verified. The family can log real purchases and the app answers "where
+did the money go last month". See `PHASE-1-NOTES.md` for what was decided along
+the way, and [Where this goes next](#where-this-goes-next) for Phase 2 onward.
 
 ## Running it
 
@@ -43,6 +42,7 @@ python verify_phase0.py     # schema constraints, money, visibility
 python verify_auth.py       # login, lockout, cookies, headers
 python verify_phase1.py     # entry form, merchant defaults, transfers, undo, CSRF
 python verify_accounts.py   # account links, cards, cash rules, limits, rates
+python verify_balances.py   # balance arithmetic, month figures, edit and delete
 ```
 
 They build their own throwaway databases and touch nothing in `app.db`.
@@ -60,8 +60,9 @@ They build their own throwaway databases and touch nothing in `app.db`.
 | `csrf.py` | session-bound CSRF token, applied to every unsafe method |
 | `transactions.py` | the single validated write path, plus the entry form's queries |
 | `fx.py` | the exchange-rate cache. The only code that reaches the internet |
+| `balances.py` | balance arithmetic and the month figures. The stated exception to rule 4 |
 | `migrations/` | `001` schema, `002` seed, `003` accounts, `004` receipts + rates |
-| `blueprints/` | `auth.py`, `entry.py` (section 6), `reference.py` (setup), `dashboard.py` |
+| `blueprints/` | `auth.py`, `entry.py` (section 6), `ledger.py` (list, edit, delete), `reference.py` (setup), `dashboard.py` |
 | `templates/`, `static/` | Jinja, plain CSS, self-hosted Inter |
 | `scripts/backup.py` | SQLite backup API + `uploads/` tarball |
 
@@ -84,9 +85,12 @@ systemd unit.
    session. Account balances are the one deliberate exception (see below).
 5. **Parameterised SQL only.** The single f-string into a query is
    `visibility_sql()`'s own literal fragment; its params stay bound.
-6. **Every transaction write goes through `transactions.create_transaction()`.**
-   There is no second path. The database CHECK constraints and triggers are the
-   backstop, not the only guard.
+6. **Every transaction write goes through `transactions._prepare()`.** Creating
+   and editing both call it, so an edit cannot pass a check a new entry would
+   fail — and the period sums (a card's daily withdrawal ceiling, a credit
+   card's monthly limit) exclude the row being replaced, or raising 500 to 600
+   would read as 1,100 against the day. The database CHECK constraints and
+   triggers are the backstop, not the only guard.
 7. **Every unsafe request carries a CSRF token.** No exemption list.
 8. **Nothing is fetched from the internet during a request.** `fetch-rates` runs
    from cron and writes to a cache; see [Exchange rates](#exchange-rates).
@@ -250,36 +254,58 @@ window all assume a live round trip.
 - **Signing out asks first**, as a page rather than a `confirm()` — the CSP
   forbids inline handlers, and the question then survives with scripting off.
 
+## Balances
+
+A balance is `opening_balance_minor` plus every leg that touched the account,
+computed on read rather than stored. There is no running total to drift, and
+nothing to rebuild when an entry is edited or deleted.
+
+Two things about it are worth knowing:
+
+- **A card's balance is its parent's.** A debit card and an Instapay handle are
+  ways of reaching a bank or wallet, so every leg resolves to its *settlement
+  account* before anything is summed, and the card row reports the figure it
+  actually draws on, marked `via <account>`. That is the whole meaning of the
+  link.
+- **Balances skip `visibility_sql()`** — rule 4's stated exception. A member
+  looking at a shared account would otherwise see a balance computed from a
+  subset of its rows, which is not a partial answer but a wrong one. Aggregate
+  totals leak; individual transactions never do.
+
+Mixed currency is handled where it can be and declined where it cannot. A
+foreign charge on a base-currency account converts through the rate captured at
+entry. A base-currency charge on a foreign-currency account has no rate pointing
+the right way, so it is counted and the balance is marked *approx* rather than
+guessed at — the same call the international card limit makes.
+
+Below zero on anything but a credit card is **coloured, never blocked**. A
+negative balance is far more often a missing opening balance or an unlogged
+income than a purchase that should not have happened, and refusing the save
+would punish the person for the ledger being behind.
+
 ## Where this goes next
 
-The remainder of **Phase 1** is one coherent chunk, and the balance engine is its
-spine:
-
-| what | what it builds on |
-|---|---|
-| Account balances | `opening_balance_minor`, plus every transaction's `amount_minor` and the transfer's `counter_amount_minor`. Deliberately unfiltered (rule 4's stated exception). An **instapay account's balance is its parent's** — that is the whole meaning of the link, and it is the one part of "changes to Instapay also happen to the bank" that is not yet visible anywhere. |
-| Month totals on `/dashboard` | `visibility_sql()` composed into a `SUM`, converting through `money.convert_to_base()` in Python, never in SQL. The template already has the shape; only the `0.00` is a placeholder. |
-| Transaction list, filters, edit, delete | `visibility_sql()` for reads; edits must go back through a validated write path, not a second `UPDATE`. `ix_txn_vis` exists for exactly this query shape. |
-| Account history page | The balance engine plus the list, scoped to one account, with an instapay handle showing its parent's rows. |
-| Overdraft prevention | Once balances exist, rule 2's balance half can be enforced live: refuse a spend that would take a non-credit-card account below zero. Not built now because with no opening balances entered it would block the very first entry. |
-
-Then:
-
 - **Phase 2 — receipts.** `attachments` is already in the schema with an
-  `ON DELETE CASCADE`; `MAX_CONTENT_LENGTH` is already set; the entry form's
-  `.pos__aux` grid column is a zero-width seat for the camera button so it drops
-  in without reflow. `transactions.receiptless` is the flag that says not to
-  expect one — the two should agree, and a receiptless transaction with an
-  attachment is a contradiction worth surfacing.
+  `ON DELETE CASCADE`; `MAX_CONTENT_LENGTH` is set; the entry form's `.pos__aux`
+  grid column is a zero-width seat for the camera button so it drops in without
+  reflow. `transactions.receiptless` is the flag that says not to expect one —
+  the two should agree, and a receiptless transaction with an attachment is a
+  contradiction worth surfacing.
 - **Phase 3 — limits and Telegram.** The `limits` and `limit_alerts` tables are
   built and unused; `limit_alerts`' UNIQUE constraint is what stops a threshold
   nagging twice. Note these are *budgets*, unrelated to the card limits on
   `accounts`, which are ceilings the bank set. `users.telegram_chat_id` and
   `TELEGRAM_BOT_TOKEN` are both already in place.
-- **Phase 4 — reporting, PWA, CSV, deployment.** `fx_rates` and the per-transaction
-  captured rate are what multi-currency reporting needs. Deployment is gunicorn
-  behind `tailscale serve`; set `SESSION_COOKIE_SECURE=1` when TLS is in front,
-  or the session cookie is set and never sent back and login silently fails.
+- **Phase 4 — reporting, PWA, CSV, deployment.** `fx_rates` and the
+  per-transaction captured rate are what multi-currency reporting needs.
+  Deployment is gunicorn behind `tailscale serve`; set `SESSION_COOKIE_SECURE=1`
+  when TLS is in front, or the session cookie is set and never sent back and
+  login silently fails.
+
+Left out on purpose: an **account history page**. The list's account filter
+already answers "what moved through this account", and a second screen showing
+the same rows is a second thing to keep correct. Build it when the filter stops
+being enough.
 
 Known rough edge to fix whenever it next annoys someone: **with JavaScript off,
 both merchant lists render at once** under their own headings. Hiding the wrong

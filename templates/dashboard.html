@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — Expenses{% endblock %}
+{% block title %}Month — Expenses{% endblock %}
 
 {% block content %}
   <div class="page-head">
@@ -13,28 +13,65 @@
   <div class="stack">
     <div class="card card--pad">
       <p class="eyebrow">Spent so far</p>
-      {# Zero is honest here: the transactions table exists and is empty. The
-         figure starts being computed — through visibility_sql() — in Phase 1. #}
       <p class="total">
         <span class="total__currency">{{ currency }}</span>
-        <span class="total__value num">0.00</span>
+        <span class="total__value num">{{ total|money(currency) }}</span>
       </p>
+      {% if unconverted %}
+        {# Counted, never guessed at. A charge in a currency with no captured
+           rate cannot be turned into base without inventing one. #}
+        <p class="hint">
+          {{ unconverted }} entr{{ 'y' if unconverted == 1 else 'ies' }} in another
+          currency {{ 'is' if unconverted == 1 else 'are' }} not included — no rate was
+          recorded for {{ 'it' if unconverted == 1 else 'them' }}.
+        </p>
+      {% endif %}
     </div>
 
     <div class="card">
-      <div class="empty">
-        <span class="empty__glyph" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-               stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 3v18l2-1.4 2 1.4 2-1.4 2 1.4 2-1.4 2 1.4V3l-2 1.4L14 3l-2 1.4L10 3 8 4.4Z" />
-            <path d="M9.5 9h5M9.5 13h5" />
-          </svg>
-        </span>
-        <p class="empty__title">Nothing logged yet</p>
-        <p class="empty__body">
-          Once entries start coming in, this is where the month adds up.
-        </p>
-      </div>
+      {% if by_category %}
+        <ul class="list">
+          {% for c in by_category %}
+            <li class="list__item list__item--static">
+              <span class="list__main">
+                <span class="list__title">
+                  {% if c.icon %}<span class="acct-emoji" aria-hidden="true">{{ c.icon }}</span>{% endif %}{{ c.name }}
+                </span>
+                <span class="list__meta">
+                  {{ c.count }} entr{{ 'y' if c.count == 1 else 'ies' }}
+                </span>
+                {# Width comes from a class-free <meter>-alike: the share is
+                   painted by a CSS custom property set in a <style> block the
+                   CSP allows (a stylesheet, not an inline attribute). #}
+                <span class="sharebar" aria-hidden="true">
+                  <span class="sharebar__fill sharebar__fill--{{ (c.share // 5) * 5 }}"></span>
+                </span>
+              </span>
+              <span class="bal">
+                <span class="bal__amount num">{{ c.minor|money(currency) }}</span>
+              </span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty">
+          <span class="empty__glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 3v18l2-1.4 2 1.4 2-1.4 2 1.4 2-1.4 2 1.4V3l-2 1.4L14 3l-2 1.4L10 3 8 4.4Z" />
+              <path d="M9.5 9h5M9.5 13h5" />
+            </svg>
+          </span>
+          <p class="empty__title">Nothing logged this month</p>
+          <p class="empty__body">
+            Once entries start coming in, this is where the month adds up.
+          </p>
+        </div>
+      {% endif %}
     </div>
+
+    <a class="btn btn--quiet btn--wide" href="{{ url_for('ledger.index') }}">
+      See every entry
+    </a>
   </div>
 {% endblock %}

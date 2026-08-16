@@ -235,3 +235,67 @@ asleep, and never hammers a provider. A failed fetch is logged and shrugged off.
   one server-side would make income sources unreachable without a page reload.
   The server refuses a merchant from the wrong list, so it cannot produce bad
   data — it is only noisier.
+
+---
+
+# Part three — balances and the ledger
+
+The chunk that finishes Phase 1: the balance engine, the month breakdown, the
+transaction list with the section 5 filters, and edit/delete.
+
+## What was decided, and what was turned down
+
+**Balances are computed on read, not stored.** A running-total column is faster
+and can drift; a `SUM` over a few thousand rows on a Pi is milliseconds and
+cannot. Nothing to rebuild after an edit or a delete, and no reconciliation job
+that has to exist forever.
+
+**A leg resolves to its settlement account before it is summed.** Rejected: giving
+cards their own balances and adding them up at display time. Money spent on a
+debit card is the bank's money leaving, and modelling it as a second pot means
+the household total counts it twice the moment anyone stops paying attention.
+
+**Mixed currency declines rather than guesses.** A foreign charge on a
+base-currency account converts through its captured rate. The other direction has
+no rate pointing the right way, so it is counted and the balance is flagged
+*approx*. Rejected: converting through today's cached rate — that is a different
+number from the one the bank used, and a balance that looks exact while being
+invented is worse than one that says it is incomplete.
+
+**Overdraft warns, never blocks.** Judgement call, and it is a judgement call:
+rule 2 says only a credit card may sit below zero, and this does not enforce it
+live. A negative balance is usually a missing opening balance, not a wrong
+purchase, and a till screen that refuses a real transaction because the ledger is
+behind is a till screen people stop using.
+
+**The list defaults to the most recent 50, any date.** Chosen over "this calendar
+month", which would have agreed with the dashboard total sitting one tab away.
+The cost is real — two screens showing different windows — and it is paid by the
+list header stating its window in words rather than leaving you to infer it.
+
+**Edit is a plain form, not the entry form.** The till screen is optimised for
+speed on something that does not exist yet; a correction is a considered act on
+something that does. Every field visible, nothing collapsed, nothing auto-filled
+behind your back. It calls the same `_prepare()`, so the rules are identical.
+
+**The period sums exclude the row being edited.** Found while wiring it: raising a
+500 withdrawal to 600 was measured as 1,100 against the card's daily ceiling,
+because the original was still counted. Both `_check_cash_withdrawal` and
+`_check_credit_limit` now take an `exclude_id`.
+
+**`.list__title` and `.list__meta` were inline.** They had always been, and it had
+always looked fine — on the short settings strings each span happened to fill its
+own line. The entry list gave them something long enough to wrap and the two
+collapsed into each other. A reminder that "it looks right" is a claim about the
+content you happened to test with.
+
+## Open questions
+
+- **The account history page** is not built. The list's account filter answers the
+  same question; a second screen showing the same rows is a second thing to keep
+  correct. Revisit if the filter stops being enough.
+- **Overdraft enforcement** could move from warn to block once opening balances
+  have been entered for real and the balances are known to track reality.
+- **The category breakdown groups by parent only.** Drilling into Eating Out to
+  see Coffee versus Restaurant needs a screen that does not exist yet; the list's
+  category filter is the current answer.

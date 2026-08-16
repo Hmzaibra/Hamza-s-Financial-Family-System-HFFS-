@@ -973,13 +973,19 @@ table td.num,
 }
 
 .list__title {
+  /* Block, not inline. These were inline until the entry list gave them
+     something long enough to wrap: on the short settings strings each span
+     happened to fill its own line, which looked stacked and was not. */
+  display: block;
   font-size: 15px;
   font-weight: 560;
 }
 
 .list__meta {
+  display: block;
   font-size: 12.5px;
   color: var(--text-muted);
+  line-height: 1.35;
 }
 
 .badge {
@@ -1153,4 +1159,154 @@ table td.num,
 
 .row--actions .btn {
   width: auto;
+}
+
+/* ==========================================================================
+   Phase 1, part three — balances, the month breakdown, the entry list
+   ========================================================================== */
+
+/* A balance sits at the end of a list row: the figure, and under it the unit
+   and where it came from. Tabular so a column of them scans. */
+.bal {
+  flex: none;
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+  text-align: right;
+}
+
+.bal__amount {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.bal__note {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Below zero on something that is not a credit card. Amber, not red: red is
+   reserved for a limit actually exceeded, and this is a warning about the
+   ledger, not a verdict on a purchase. */
+.bal--over .bal__amount {
+  color: var(--warn);
+}
+
+.flash--warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* Direction painted on the amount. Spend stays ink rather than red — most rows
+   in this app are spending, and colouring the ordinary case leaves nothing left
+   to mean "look at this". */
+.amt--income {
+  color: var(--accent);
+}
+
+.amt--transfer {
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------- category share bars */
+
+.sharebar {
+  display: block;
+  height: 3px;
+  margin-top: 7px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.sharebar__fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* Widths as classes rather than an inline style: the CSP has no unsafe-inline,
+   so a style attribute would silently not render (rule 9). Five-point steps —
+   finer than the eye resolves on a 3px bar at this width. */
+.sharebar__fill--0   { width: 2%;   }
+.sharebar__fill--5   { width: 5%;   }
+.sharebar__fill--10  { width: 10%;  }
+.sharebar__fill--15  { width: 15%;  }
+.sharebar__fill--20  { width: 20%;  }
+.sharebar__fill--25  { width: 25%;  }
+.sharebar__fill--30  { width: 30%;  }
+.sharebar__fill--35  { width: 35%;  }
+.sharebar__fill--40  { width: 40%;  }
+.sharebar__fill--45  { width: 45%;  }
+.sharebar__fill--50  { width: 50%;  }
+.sharebar__fill--55  { width: 55%;  }
+.sharebar__fill--60  { width: 60%;  }
+.sharebar__fill--65  { width: 65%;  }
+.sharebar__fill--70  { width: 70%;  }
+.sharebar__fill--75  { width: 75%;  }
+.sharebar__fill--80  { width: 80%;  }
+.sharebar__fill--85  { width: 85%;  }
+.sharebar__fill--90  { width: 90%;  }
+.sharebar__fill--95  { width: 95%;  }
+.sharebar__fill--100 { width: 100%; }
+
+/* ----------------------------------------------------------- the list */
+
+.daymark {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 16px 6px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* A row nobody may edit is not a link, and must not pretend to be one. */
+.list__item--static {
+  cursor: default;
+}
+
+.list__note {
+  display: block;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint--spaced {
+  margin: 14px 2px 8px;
+}
+
+.btn--wide {
+  width: 100%;
+}
+
+/* Destructive actions get distance and their own form, never a place beside
+   Save where a stray Enter could reach them. */
+.dangerbar {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.btn--danger {
+  width: 100%;
+  background: transparent;
+  color: var(--over);
+  border-color: var(--over);
+}
+
+.btn--danger:hover {
+  background: var(--over);
+  color: var(--card);
 }

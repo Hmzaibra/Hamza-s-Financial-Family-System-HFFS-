@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Entries — Expenses{% endblock %}
+
+{% macro amount(t) %}
+  {# Direction carries the sign; the stored number is always positive. The minus
+     is painted here rather than stored, which is hard rule 2 on screen. #}
+  <span class="bal">
+    <span class="bal__amount num amt amt--{{ t.direction }}">
+      {%- if t.direction == 'spend' %}−{% elif t.direction == 'income' %}+{% endif -%}
+      {{ t.amount_minor|money(t.currency) }}
+    </span>
+    <span class="bal__note">
+      {{ t.currency }}
+    </span>
+  </span>
+{% endmacro %}
+
+{% block content %}
+  <div class="toolbar">
+    <h1 class="toolbar__title">Entries</h1>
+    <a class="btn btn--quiet" href="{{ url_for('entry.form') }}">Log one</a>
+  </div>
+
+  {# Filters live in a <details> so the list is the first thing you see, and the
+     whole thing is a GET form: the querystring is the filter state, so a
+     filtered view is a link you can bookmark or send to someone. It needs no
+     JavaScript to work. #}
+  <details class="disclosure" {% if active_filters %}open{% endif %}>
+    <summary class="disclosure__summary">
+      <span>Filters{% if active_filters %} · {{ active_filters }} applied{% endif %}</span>
+    </summary>
+    <div class="disclosure__body">
+      <form method="get" action="{{ url_for('ledger.index') }}">
+        <div class="field">
+          <label class="field__label" for="q">Search notes and merchants</label>
+          <input class="input" id="q" name="q" type="search" value="{{ filters.q }}"
+                 placeholder="dinner, pharmacy, …" />
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label class="field__label" for="from">From</label>
+            <input class="input num" id="from" name="from" type="date" value="{{ filters['from'] }}" />
+          </div>
+          <div class="field">
+            <label class="field__label" for="to">To</label>
+            <input class="input num" id="to" name="to" type="date" value="{{ filters.to }}" />
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label class="field__label" for="user_id">Person</label>
+            <select class="input" id="user_id" name="user_id">
+              <option value="">Anyone</option>
+              {% for p in people %}
+                <option value="{{ p.id }}" {% if filters.user_id == p.id|string %}selected{% endif %}>
+                  {{ p.display_name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label class="field__label" for="direction">Type</label>
+            <select class="input" id="direction" name="direction">
+              <option value="">Any</option>
+              {% for d in ['spend', 'income', 'transfer'] %}
+                <option value="{{ d }}" {% if filters.direction == d %}selected{% endif %}>{{ d|title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label class="field__label" for="category_id">Category</label>
+            <select class="input" id="category_id" name="category_id">
+              <option value="">Any</option>
+              {% for c in categories %}
+                <option value="{{ c.id }}" {% if filters.category_id == c.id|string %}selected{% endif %}>
+                  {% if c.parent_name %}{{ c.parent_name }} › {% endif %}{{ c.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label class="field__label" for="account_id">Account</label>
+            <select class="input" id="account_id" name="account_id">
+              <option value="">Any</option>
+              {% for a in accounts %}
+                <option value="{{ a.id }}" {% if filters.account_id == a.id|string %}selected{% endif %}>
+                  {{ a.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label class="field__label" for="merchant_id">Merchant</label>
+            <select class="input" id="merchant_id" name="merchant_id">
+              <option value="">Any</option>
+              {% for m in merchants %}
+                <option value="{{ m.id }}" {% if filters.merchant_id == m.id|string %}selected{% endif %}>
+                  {{ m.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label class="field__label" for="online">Where</label>
+            <select class="input" id="online" name="online">
+              <option value="">Anywhere</option>
+              <option value="0" {% if filters.online == '0' %}selected{% endif %}>In person</option>
+              <option value="1" {% if filters.online == '1' %}selected{% endif %}>Online</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <button type="submit" class="btn btn--primary">Apply</button>
+          <a class="btn btn--quiet" href="{{ url_for('ledger.index') }}">Clear</a>
+        </div>
+      </form>
+    </div>
+  </details>
+
+  {# States the window explicitly. The dashboard above counts this calendar
+     month; this list counts the most recent entries whatever their date, and
+     two numbers that mean different things should say so rather than look like
+     a contradiction. #}
+  <p class="hint hint--spaced">
+    {% if active_filters %}
+      {{ count }} matching entr{{ 'y' if count == 1 else 'ies' }}{% if more %}, newest {{ limit }} shown{% endif %}.
+    {% else %}
+      The {{ count }} most recent entr{{ 'y' if count == 1 else 'ies' }}, any date.
+    {% endif %}
+  </p>
+
+  <div class="card">
+    {% if days %}
+      {% for day, rows in days %}
+        <p class="daymark num">{{ day }}</p>
+        <ul class="list">
+          {% for t in rows %}
+            <li>
+              {% if can_edit(current_user, t) %}
+                <a class="list__item" href="{{ url_for('ledger.edit', txn_id=t.id) }}">
+              {% else %}
+                {# Shared, but someone else's: readable, not editable. #}
+                <span class="list__item list__item--static">
+              {% endif %}
+                <span class="list__main">
+                  <span class="list__title">
+                    {% if t.category_icon %}<span class="acct-emoji" aria-hidden="true">{{ t.category_icon }}</span>{% endif %}
+                    {%- if t.direction == 'transfer' -%}
+                      {{ t.account_name }} → {{ t.counter_account_name }}
+                    {%- else -%}
+                      {{ t.merchant_name or t.account_name }}
+                    {%- endif -%}
+                  </span>
+                  <span class="list__meta">
+                    {%- if t.parent_category %}{{ t.parent_category }} › {% endif %}
+                    {{- t.category_name or 'Uncategorised' }}
+                    · {{ t.account_name }}
+                    {%- if t.is_online %} · online{% endif %}
+                    {%- if t.receiptless %} · no receipt{% endif %}
+                    {%- if t.owner_name %} · {{ t.owner_name }}{% endif %}
+                    {%- if not t.is_shared %} · private{% endif %}
+                  </span>
+                  {% if t.note %}<span class="list__note">{{ t.note }}</span>{% endif %}
+                </span>
+                {{ amount(t) }}
+              {% if can_edit(current_user, t) %}</a>{% else %}</span>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      {% endfor %}
+    {% else %}
+      <div class="empty">
+        <p class="empty__title">Nothing here</p>
+        <p class="empty__body">
+          {% if active_filters %}
+            No entry matches those filters.
+          {% else %}
+            Log something and it will show up here.
+          {% endif %}
+        </p>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

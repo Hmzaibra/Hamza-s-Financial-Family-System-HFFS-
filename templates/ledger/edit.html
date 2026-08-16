@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Edit entry — Expenses{% endblock %}
+
+{% macro selected(a, b) %}{% if a is not none and b is not none and a|string == b|string %}selected{% endif %}{% endmacro %}
+
+{% block content %}
+  <div class="page-head">
+    <div><h1>Edit entry</h1></div>
+    <p class="sub num">#{{ txn.id }}</p>
+  </div>
+
+  {% if error %}
+    <p class="flash flash--error" role="alert">{{ error.message }}</p>
+  {% endif %}
+
+  {# A plain form, not the entry form. The till screen is optimised for speed on
+     something that does not exist yet; a correction is a considered act on
+     something that does, so every field is visible at once and nothing is
+     collapsed or auto-filled behind your back. It still goes through
+     transactions._prepare(), so the rules are identical. #}
+  <form method="post" class="card card--pad"
+        action="{{ url_for('ledger.save', txn_id=txn.id) }}">
+    {{ csrf_input() }}
+
+    <div class="grid-2">
+      <div class="field">
+        <label class="field__label" for="amount">Amount</label>
+        <input class="input num" id="amount" name="amount" type="text" inputmode="decimal"
+               value="{{ values.get('amount', '') }}" />
+      </div>
+      <div class="field">
+        <label class="field__label" for="currency">Currency</label>
+        <select class="input" id="currency" name="currency">
+          {% for code in ['EGP','EUR','USD','GBP','AED','SAR'] %}
+            <option value="{{ code }}" {% if values.get('currency') == code %}selected{% endif %}>{{ code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="field">
+        <label class="field__label" for="direction">Type</label>
+        <select class="input" id="direction" name="direction">
+          {% for d in ['spend','income','transfer'] %}
+            <option value="{{ d }}" {% if values.get('direction') == d %}selected{% endif %}>{{ d|title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="occurred_on">Date</label>
+        <input class="input num" id="occurred_on" name="occurred_on" type="date"
+               value="{{ values.get('occurred_on', '') }}" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="merchant_id">Merchant</label>
+      <select class="input" id="merchant_id" name="merchant_id">
+        <option value="">None</option>
+        {% for m in merchants %}
+          <option value="{{ m.id }}" {{ selected(values.get('merchant_id'), m.id) }}>{{ m.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="grid-2">
+      <div class="field">
+        <label class="field__label" for="category_id">Category</label>
+        <select class="input" id="category_id" name="category_id">
+          <option value="">None</option>
+          {% for c in categories %}
+            <option value="{{ c.id }}" {{ selected(values.get('category_id'), c.id) }}>
+              {% if c.parent_name %}{{ c.parent_name }} › {% endif %}{{ c.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="account_id">Account</label>
+        <select class="input" id="account_id" name="account_id">
+          {% for a in accounts %}
+            <option value="{{ a.id }}" {{ selected(values.get('account_id'), a.id) }}>{{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="field">
+        <label class="field__label" for="counter_account_id">Into account (transfers)</label>
+        <select class="input" id="counter_account_id" name="counter_account_id">
+          <option value="">—</option>
+          {% for a in accounts %}
+            <option value="{{ a.id }}" {{ selected(values.get('counter_account_id'), a.id) }}>{{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="counter_amount">Amount that arrived</label>
+        <input class="input num" id="counter_amount" name="counter_amount" type="text" inputmode="decimal"
+               value="{{ values.get('counter_amount', '') }}" />
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="field">
+        <label class="field__label" for="is_online">Where</label>
+        <select class="input" id="is_online" name="is_online">
+          <option value="0" {% if not values.get('is_online') %}selected{% endif %}>In person</option>
+          <option value="1" {% if values.get('is_online') %}selected{% endif %}>Online</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="fx_rate_to_base">Rate → {{ base }}</label>
+        <input class="input num" id="fx_rate_to_base" name="fx_rate_to_base" type="text"
+               inputmode="decimal" value="{{ values.get('fx_rate_to_base') or '' }}" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="note">Note</label>
+      <input class="input" id="note" name="note" type="text" maxlength="500"
+             value="{{ values.get('note') or '' }}" />
+    </div>
+
+    <label class="check" for="receiptless">
+      <input type="checkbox" id="receiptless" name="receiptless" value="1"
+             {% if values.get('receiptless') %}checked{% endif %} />
+      <span>No receipt for this</span>
+    </label>
+
+    <label class="check" for="is_shared">
+      <input type="checkbox" id="is_shared" name="is_shared" value="1"
+             {% if values.get('is_shared') %}checked{% endif %} />
+      <span>Visible to the household</span>
+    </label>
+
+    <button type="submit" class="btn btn--primary">Save changes</button>
+  </form>
+
+  {# Its own form, so the delete button can never be the one the Enter key
+     reaches from inside the edit fields. #}
+  <form method="post" class="dangerbar"
+        action="{{ url_for('ledger.delete', txn_id=txn.id) }}">
+    {{ csrf_input() }}
+    <button type="submit" class="btn btn--danger">Delete this entry</button>
+  </form>
+{% endblock %}

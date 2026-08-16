@@ -11,3 +11,6 @@ __pycache__/
 venv/
 .pytest_cache/
 .DS_Store
+
+# Transport and scratch used by the assistant; safe to delete.
+_to_delete/

@@ -11,14 +11,15 @@ why things are the way they are before proposing to change them.
 .venv/bin/flask --app app run --debug                     # POSIX
 ```
 
-Verification — run **all four** after any change; they build throwaway databases
+Verification — run **all five** after any change; they build throwaway databases
 and never touch `app.db`:
 
 ```bash
-python verify_phase0.py && python verify_auth.py && python verify_phase1.py && python verify_accounts.py
+python verify_phase0.py && python verify_auth.py && python verify_phase1.py && \
+  python verify_accounts.py && python verify_balances.py
 ```
 
-270 checks at time of writing. A failing check is a real regression or a rule that
+322 checks at time of writing. A failing check is a real regression or a rule that
 changed on purpose — if the latter, update the check *and* say so, never delete it.
 
 Two of them are *source* checks rather than behavioural ones — no `date.today()`
@@ -37,9 +38,11 @@ that are invisible at runtime until the numbers are already wrong.
    "today" — card expiry included, on every screen that checks it, or a card
    reads live on one and expired on the other.
 4. **Every transaction read goes through `visibility.visibility_sql()`**, which
-   fails closed with no session. Account balances are the one stated exception.
-5. **Every transaction write goes through `transactions.create_transaction()`.**
-   There is no second path. DB constraints are the backstop, not the guard.
+   fails closed with no session. Account balances are the one stated exception —
+   `balances.py` says why in its docstring, and nothing else may claim it.
+5. **Every transaction write goes through `transactions._prepare()`.** Create
+   and edit both call it, so an edit cannot pass a check an insert would fail.
+   DB constraints are the backstop, not the guard.
 6. **Every unsafe request carries a CSRF token.** No exemption list.
 7. **Nothing hits the network during a request.** `fx.py` runs from cron only.
 8. **No inline `style=` or `on*=` attributes.** The CSP has no `unsafe-inline`, so
@@ -65,15 +68,25 @@ that are invisible at runtime until the numbers are already wrong.
 
 ## Where things live
 
-`transactions.py` is the write path and the entry form's queries. `reference.py`
+`transactions.py` is the write path and the entry form's queries. `balances.py`
+is the balance arithmetic and the month figures. `ledger.py` is the list, edit
+and delete. `reference.py`
 is admin CRUD for accounts, categories and merchants. `fx.py` is the rate cache.
 `visibility.py` is the section 4 rule, implemented once. `money.py` owns every
 currency-shaped decision.
 
 ## Current state
 
-Phase 1 is half done. The next chunk is the balance engine, and everything it
-feeds — month totals, the transaction list, the account history page, live
-overdraft prevention. `README.md` § *Where this goes next* lists what each piece
-has to build on. Do not start Phase 2 (receipts) before that lands; the
-`receiptless` flag and the `attachments` table have to agree with each other.
+**Phase 1 is complete.** Balances, month totals, the category breakdown, the
+transaction list with the section 5 filters, and edit/delete are all in. The
+family can log real purchases and the app answers "where did the money go".
+
+Phase 2 (receipts) is now unblocked. `transactions.receiptless` and the
+`attachments` table have to agree with each other: a receiptless transaction
+carrying a receipt photo is a contradiction, and that is cheaper to design for
+than to retrofit. `.pos__aux` on the entry form is the camera button's seat.
+
+Still open, deliberately: the account history page (the list scoped to one
+account, with a card showing its parent's rows) was left out because the
+account filter on the list already answers the same question — build it when
+that stops being true.
