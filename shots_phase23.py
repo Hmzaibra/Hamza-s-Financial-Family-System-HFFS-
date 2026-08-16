@@ -16,7 +16,9 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -45,15 +47,20 @@ conn.execute(
     "(1,'sam','Sam',?,'admin',1,'Africa/Cairo','10012',1,'t'),"
     "(2,'lea','Lea',?,'member',1,'Africa/Cairo',NULL,1,'t')", (pw, pw))
 conn.execute(
-    "INSERT INTO accounts (id, name, type, currency, owner_id, is_active, sort_order, created_at) "
-    "VALUES (2,'CIB Current','bank','EGP',NULL,1,20,'t'),"
-    "       (3,'Cash','cash','EGP',NULL,1,30,'t')")
+    "INSERT INTO accounts (id, name, type, currency, is_active, sort_order, created_at) "
+    "VALUES (2,'CIB Current','bank','EGP',1,20,'t'),"
+    "       (3,'Cash','cash','EGP',1,30,'t')")
 # 004's trigger requires a handle on an Instapay row, and it links to the bank
 # it draws on — the seed has to satisfy the same rules the form does.
 conn.execute(
-    "INSERT INTO accounts (id, name, type, currency, owner_id, parent_account_id, is_active, "
+    "INSERT INTO accounts (id, name, type, currency, parent_account_id, is_active, "
     "sort_order, created_at, instapay_handle) "
-    "VALUES (1,'Sam - @sam_pay','instapay','EGP',NULL,2,1,10,'t','@sam_pay')")
+    "VALUES (1,'Sam - @sam_pay','instapay','EGP',2,1,10,'t','@sam_pay')")
+# Two people on one account, which is what 006 exists for — the screenshots
+# should show the case that motivated it, not the easy one.
+conn.execute(
+    "INSERT INTO account_owners (account_id, user_id, created_at) VALUES "
+    "(2,1,'t'), (2,2,'t'), (1,1,'t')")
 conn.execute(
     "INSERT INTO merchants (id, name, default_category_id, default_is_online, "
     "default_account_id, is_system, is_active, created_at) VALUES "
@@ -69,6 +76,38 @@ for i, (mid, cat, amount) in enumerate(
         "created_at, updated_at) VALUES (1,?,'spend',?,'EGP',2,?,?,0,1,?,?,'t')",
         (f"2026-08-1{i}", amount, mid, cat, 1 if i == 1 else 0, f"2026-08-1{i}T10:00:00Z"))
 
+# A card with a ceiling, a foreign account, and a month of movement, so the
+# account summary and the balance history have something to draw.
+conn.execute(
+    "INSERT INTO accounts (id, name, type, currency, parent_account_id, "
+    "opening_balance_minor, is_active, sort_order, created_at, card_network, card_color, "
+    "card_expires_on, withdrawal_limit_minor) VALUES "
+    "(4,'CIB Debit','debit_card','EGP',2,0,1,25,'t','Visa','#1F6F63','2099-12',300000)")
+conn.execute(
+    "INSERT INTO accounts (id, name, type, currency, opening_balance_minor, is_active, "
+    "sort_order, created_at) VALUES (5,'N26','bank','EUR',120000,1,50,'t')")
+conn.execute("UPDATE accounts SET opening_balance_minor = 850000 WHERE id = 2")
+conn.execute(
+    "INSERT INTO account_owners (account_id, user_id, created_at) VALUES (4,1,'t'), (5,1,'t')")
+# A cash withdrawal on the card, most of its daily ceiling, so one wheel is
+# nearly full and another is comfortable.
+conn.execute(
+    "INSERT INTO transactions (user_id, occurred_on, direction, amount_minor, currency, "
+    "account_id, counter_account_id, counter_amount_minor, counter_currency, is_online, "
+    "is_shared, receiptless, created_at, updated_at) VALUES "
+    "(1,?,'transfer',260000,'EGP',4,3,260000,'EGP',0,1,0,'t','t')",
+    (datetime.now(ZoneInfo("Africa/Cairo")).date().isoformat(),))
+conn.execute(
+    "INSERT INTO transactions (user_id, occurred_on, direction, amount_minor, currency, "
+    "account_id, category_id, is_online, is_shared, receiptless, created_at, updated_at) "
+    "VALUES (1,'2026-08-06','income',1250000,'EGP',2,NULL,0,1,0,'t','t')")
+# One of Lea's, private, so the history shows the marker row for entries a
+# reader may not see.
+conn.execute(
+    "INSERT INTO transactions (user_id, occurred_on, direction, amount_minor, currency, "
+    "account_id, category_id, is_online, is_shared, receiptless, created_at, updated_at) "
+    "VALUES (2,'2026-08-07','spend',31500,'EGP',2,1,0,0,0,'t','t')")
+
 # Three budgets, one of each state, so the bar's colours are all photographed.
 conn.execute(
     "INSERT INTO limits (name, scope_type, scope_id, period, amount_minor, currency, "
@@ -76,7 +115,11 @@ conn.execute(
     "('Groceries','category',1,'monthly',150000,'EGP',80,1,'t'),"
     "('Everything','household',NULL,'monthly',400000,'EGP',80,1,'t'),"
     "('Eating out','category',103,'weekly',20000,'EGP',75,1,'t'),"
-    "('Lea''s pocket money','user',2,'monthly',80000,'EGP',80,1,'t')")
+    "('Lea''s pocket money','user',2,'monthly',80000,'EGP',80,1,'t'),"
+    # Scoped to an account, so the summary screen has a wheel that is a budget
+    # next to the wheels that are the bank's ceilings — the two look identical
+    # and behave completely differently, which is the thing worth photographing.
+    "('CIB spending','account',2,'monthly',350000,'EGP',80,1,'t')")
 conn.commit()
 conn.close()
 
@@ -182,6 +225,26 @@ try:
             page.goto(f"{BASE}/settings/limits/new")
             page.wait_for_timeout(400)
             page.screenshot(path=OUT / f"budget-form-{scheme}.png", full_page=True)
+
+            page.goto(f"{BASE}/accounts/")
+            page.wait_for_timeout(400)
+            page.screenshot(path=OUT / f"myaccounts-{scheme}.png", full_page=True)
+
+            page.goto(f"{BASE}/accounts/2")
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(400)
+            page.screenshot(path=OUT / f"account-summary-{scheme}.png", full_page=True)
+
+            page.goto(f"{BASE}/accounts/2/history")
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(400)
+            page.screenshot(path=OUT / f"balance-history-{scheme}.png", full_page=True)
+
+            # The card, whose wheels are the bank's own ceilings.
+            page.goto(f"{BASE}/accounts/4")
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(400)
+            page.screenshot(path=OUT / f"account-card-{scheme}.png", full_page=True)
 
             page.goto(f"{BASE}/settings/people")
             page.wait_for_timeout(400)

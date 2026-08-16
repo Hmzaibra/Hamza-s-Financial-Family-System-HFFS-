@@ -42,7 +42,7 @@
 {% macro meta(a) %}
   <span class="list__meta">
     {{ a.type|replace('_', ' ') }} · {{ a.currency }}
-    · {% if a.owner_name %}{{ a.owner_name }}{% else %}shared{% endif %}
+    · {% if owners.get(a.id) %}{{ owners[a.id]|join(' & ') }}{% else %}shared{% endif %}
     {%- if a.card_network %} · {{ a.card_network }}{% endif %}
     {%- if a.card_expires_on %} · expires {{ a.card_expires_on }}{% endif %}
   </span>

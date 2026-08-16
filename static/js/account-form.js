@@ -15,7 +15,7 @@
   var type = document.getElementById("type");
   var currency = document.getElementById("currency");
   var parent = document.getElementById("parent_account_id");
-  var owner = document.getElementById("owner_id");
+  var ownerBoxes = form.querySelectorAll('input[name="owner_ids"]');
   var same = document.getElementById("same_limits");
   var localLimit = document.getElementById("credit_limit_local");
   var intlField = document.getElementById("intl-limit-field");
@@ -70,21 +70,28 @@
     if (same.checked && localLimit && intlLimit) intlLimit.value = localLimit.value;
   }
 
-  /* A card on an account belongs to that account's owner. Only a default — it fires when the
-     linked account changes, and whatever is chosen afterwards stands, because a
-     joint account with a card each is a real arrangement. */
-  function inheritOwner() {
-    if (!owner || !parent || !type) return;
+  /* A card on an account belongs to that account's people. Only a default — it
+     fires when the linked account changes, and whatever is ticked afterwards
+     stands, because a joint account with a card each is a real arrangement.
+
+     Since 006 that is a set rather than one person, so this ticks a list rather
+     than assigning a value. */
+  function inheritOwners() {
+    if (!ownerBoxes.length || !parent || !type) return;
     if (type.value !== "instapay" && type.value !== "debit_card") return;
     var opt = parent.options[parent.selectedIndex];
     if (!opt || !opt.dataset) return;
-    owner.value = opt.dataset.owner || "";
+
+    var ids = (opt.dataset.owners || "").split(",");
+    for (var i = 0; i < ownerBoxes.length; i++) {
+      ownerBoxes[i].checked = ids.indexOf(ownerBoxes[i].value) !== -1;
+    }
   }
 
   if (type) type.addEventListener("change", syncType);
   if (parent) parent.addEventListener("change", function () {
     syncParentCurrency();
-    inheritOwner();
+    inheritOwners();
   });
   if (same) same.addEventListener("change", syncSameLimits);
   if (localLimit) localLimit.addEventListener("input", function () {

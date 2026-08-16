@@ -29,13 +29,24 @@ bp = Blueprint("ledger", __name__)
 DEFAULT_LIMIT = 50
 
 
+# "Anyone" as a value rather than as an absence. The list opens filtered to the
+# person reading it, which is what it is for — your own spending is the question
+# you have nine times out of ten. That means a missing user_id can no longer mean
+# "no filter", because a missing user_id is now the default. So not-filtering is
+# something you say out loud, and a link to the unfiltered list stays a link.
+EVERYONE = "all"
+
+
 def _filters() -> dict:
     """Read the querystring into a dict of applied filters."""
     def s(name):
         return (request.args.get(name) or "").strip()
 
     return {
-        "from": s("from"), "to": s("to"), "user_id": s("user_id"),
+        "from": s("from"), "to": s("to"),
+        # Absent → me. Present and "all" → everyone. Present and a number →
+        # that person, which is what admin uses to look at somebody else.
+        "user_id": s("user_id") or str(g.user["id"]),
         "category_id": s("category_id"), "account_id": s("account_id"),
         "merchant_id": s("merchant_id"), "online": s("online"),
         "direction": s("direction"), "q": s("q"),
@@ -51,7 +62,7 @@ def _where(user, f: dict) -> tuple[str, list]:
         clauses.append("t.occurred_on >= ?"); params.append(f["from"])
     if f["to"]:
         clauses.append("t.occurred_on <= ?"); params.append(f["to"])
-    if f["user_id"]:
+    if f["user_id"] and f["user_id"] != EVERYONE:
         clauses.append("t.user_id = ?"); params.append(f["user_id"])
     if f["account_id"]:
         # An account filter means "money that moved through this", so a transfer
@@ -89,7 +100,14 @@ def _where(user, f: dict) -> tuple[str, list]:
 def index():
     f = _filters()
     where, params = _where(g.user, f)
-    active = sum(1 for k, v in f.items() if v)
+    # The person filter is the default, not something you applied, so it does not
+    # count towards "3 filters applied" — a badge that is never zero is a badge
+    # nobody reads. Choosing someone else, or everyone, does count.
+    default_person = f["user_id"] == str(g.user["id"]) and not request.args.get("user_id")
+    active = sum(
+        1 for k, v in f.items()
+        if v and not (k == "user_id" and default_person)
+    )
 
     rows = query(
         f"SELECT t.*, m.name AS merchant_name, "
@@ -126,6 +144,8 @@ def index():
         # trips to draw fifty paperclips is how a list gets slow on an SD card.
         photos=receipts.counts_for(row["id"] for row in rows),
         filters=f, active_filters=active,
+        everyone=EVERYONE,
+        showing_only_me=f["user_id"] == str(g.user["id"]),
         base=base_currency(),
         today=today_for(g.user["timezone"]),
         people=query("SELECT id, display_name FROM users ORDER BY display_name"),

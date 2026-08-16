@@ -2,11 +2,12 @@
 
 Self-hosted household expense log. Flask + SQLite, no build step, no CDN.
 
-**Phases 0 through 3 are complete.** The entry form, the account model,
-balances, the month breakdown, the transaction list with filters, edit and
-delete, receipt photos with the EXIF stripped off them, and budgets that warn
-over Telegram are all built and verified. The family can log real purchases,
-photograph the slip, and hear about it when a budget runs out.
+**Phases 0 through 3 are complete**, plus the account screens. The entry form,
+the account model, balances, the month breakdown, the transaction list, edit and
+delete, receipt photos with the EXIF stripped off them, budgets that warn over
+Telegram, and a per-account summary with a balance history are all built and
+verified. The family can log real purchases, photograph the slip, hear about it
+when a budget runs out, and watch an account's balance unwind entry by entry.
 
 See `PHASE-1-NOTES.md` and `PHASE-2-3-NOTES.md` for what was decided along the
 way and why, and [Where this goes next](#where-this-goes-next) for Phase 4.
@@ -54,9 +55,10 @@ python verify_accounts.py   # account links, cards, cash rules, limits, rates
 python verify_balances.py   # balance arithmetic, month figures, edit and delete
 python verify_receipts.py   # EXIF stripping, resizing, who may see a photo, orphans
 python verify_limits.py     # period maths, scopes, who is told, and how often
+python verify_myaccounts.py # ownership, the account summary, the balance walk
 ```
 
-509 checks. They build their own throwaway databases and touch nothing in
+615 checks. They build their own throwaway databases and touch nothing in
 `app.db` or `uploads/`.
 
 ## Layout
@@ -74,10 +76,11 @@ python verify_limits.py     # period maths, scopes, who is told, and how often
 | `fx.py` | the exchange-rate cache. One of two files that reach the internet |
 | `telegram.py` | Bot API sending. The other one, and cron-only like the first |
 | `balances.py` | balance arithmetic and the month figures. A stated exception to rule 4 |
+| `accounts.py` | who owns an account, its summary, and the balance walked backwards |
 | `limits.py` | budgets: period maths, scope maths, and the alert sweep. The other exception |
 | `receipts.py` | the image pipeline — resize, thumbnail, strip EXIF — and orphan cleanup |
-| `migrations/` | `001` schema, `002` seed, `003` accounts, `004` receipts + rates, `005` photos + budgets |
-| `blueprints/` | `auth.py`, `entry.py` (section 6), `ledger.py` (list, edit, delete), `receipts.py` (serve, attach, remove), `reference.py` (setup), `dashboard.py` |
+| `migrations/` | `001` schema, `002` seed, `003` accounts, `004` receipts + rates, `005` photos + budgets, `006` shared ownership |
+| `blueprints/` | `auth.py`, `entry.py` (section 6), `ledger.py` (list, edit, delete), `receipts.py` (serve, attach, remove), `myaccounts.py` (my accounts, summary, history), `reference.py` (setup), `dashboard.py` |
 | `templates/`, `static/` | Jinja, plain CSS, self-hosted Inter |
 | `scripts/backup.py` | SQLite backup API + `uploads/` tarball |
 
@@ -435,6 +438,60 @@ Setting it up is three steps and the middle one is not optional: put the token
 from @BotFather in `.env`, have each person send the bot any message, then run
 `telegram-chats` and paste the numbers into Setup → People. Telegram will not
 let a bot write to someone who has never written to it. That is a spam rule.
+
+## My accounts
+
+`/settings/accounts` is where accounts are created and is admin-only. `/accounts`
+is where you look at your money and is for everybody. Two screens over the same
+rows is usually a smell; these are the two halves of a real split, and the
+second is the reason the app exists.
+
+Since migration `006` an account can carry **several names**, in `account_owners`.
+A joint current account belongs to both people, and "shared" used to be the only
+way to say that — which threw the information away rather than recording it.
+`accounts.owner_id` is retired and 006 has triggers refusing a write to it: two
+sources of truth about who owns what disagree within a week.
+
+**Ownership is not visibility.** It decides whose list an account appears in and
+nothing else. Section 4 still keys off the transaction's owner, so putting two
+people on a joint account shows neither of them a purchase the other made
+privately. Admin sees every account, because admin already sees every entry in
+them — hiding the container while showing the contents would be a lock on a door
+with no wall. An account nobody has claimed is the household's and everyone sees
+it.
+
+### The summary
+
+Balance, this month's spending and income, the top five categories, and the
+account's ceilings drawn as rings. Two unrelated kinds of ceiling share that
+list and each says which it is, because they behave completely differently: the
+bank's limits refuse a save, a budget only warns.
+
+A ring is a circle with a dashed stroke whose first dash is the filled arc, so
+the only thing that varies is one length — and `stroke-dasharray` is an SVG
+presentation attribute, which survives a CSP with no `unsafe-inline` where an
+inline style would silently not render.
+
+### Balance history
+
+The balance after every entry, newest first, twenty at a time.
+
+Walked **backwards from the balance now**, because now is the only figure known
+to be right. A forward walk from the opening balance would accumulate every
+rounding decision and every unconvertible leg, and would disagree with the
+accounts screen by the time it reached the top.
+
+Both legs of a transfer are counted, so moving money between a card and the
+account behind it nets to zero rather than inventing a movement. A leg in a
+currency with no captured rate moves the balance by nothing and is marked, the
+same call `balances.py` makes — an admitted gap beats a guess.
+
+This is where section 4 and the balance exception meet head on, and neither wins
+outright. Filtering the arithmetic would print a wrong balance; unfiltering the
+list would hand you somebody's private purchases. So the walk reads everything,
+the list shows only what you may see, and a plain marker row says how many
+entries were skipped. The step in the number is already visible — the marker
+only stops it looking like a bug.
 
 ## Where this goes next
 

@@ -53,12 +53,15 @@ def create_app(config_object=Config) -> Flask:
     db.init_app(app)
     csrf.init_app(app)
 
-    from blueprints import auth, dashboard, entry, ledger, receipts, reference
+    from blueprints import (
+        auth, dashboard, entry, ledger, myaccounts, receipts, reference,
+    )
 
     app.register_blueprint(auth.bp)
     app.register_blueprint(entry.bp)
     app.register_blueprint(dashboard.bp)
     app.register_blueprint(ledger.bp)
+    app.register_blueprint(myaccounts.bp)
     app.register_blueprint(receipts.bp)
     app.register_blueprint(reference.bp)
 

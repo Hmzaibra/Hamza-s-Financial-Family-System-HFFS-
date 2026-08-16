@@ -49,13 +49,18 @@
         </div>
 
         <div class="grid-2">
+          {# "Anyone" is a value, not an empty option. The list opens on you,
+             so an absent user_id means you rather than everyone, and not
+             filtering has to be something you can say. #}
           <div class="field">
             <label class="field__label" for="user_id">Person</label>
             <select class="input" id="user_id" name="user_id">
-              <option value="">Anyone</option>
+              <option value="{{ everyone }}" {% if filters.user_id == everyone %}selected{% endif %}>
+                Anyone
+              </option>
               {% for p in people %}
                 <option value="{{ p.id }}" {% if filters.user_id == p.id|string %}selected{% endif %}>
-                  {{ p.display_name }}
+                  {{ p.display_name }}{% if p.id == current_user['id'] %} (you){% endif %}
                 </option>
               {% endfor %}
             </select>
@@ -120,7 +125,7 @@
 
         <div class="row">
           <button type="submit" class="btn btn--primary">Apply</button>
-          <a class="btn btn--quiet" href="{{ url_for('ledger.index') }}">Clear</a>
+          <a class="btn btn--quiet" href="{{ url_for('ledger.index') }}">Back to mine</a>
         </div>
       </form>
     </div>
@@ -133,6 +138,9 @@
   <p class="hint hint--spaced">
     {% if active_filters %}
       {{ count }} matching entr{{ 'y' if count == 1 else 'ies' }}{% if more %}, newest {{ limit }} shown{% endif %}.
+    {% elif showing_only_me %}
+      Your {{ count }} most recent entr{{ 'y' if count == 1 else 'ies' }}, any date.
+      <a href="{{ url_for('ledger.index', user_id=everyone) }}">Show everyone's</a>.
     {% else %}
       The {{ count }} most recent entr{{ 'y' if count == 1 else 'ies' }}, any date.
     {% endif %}

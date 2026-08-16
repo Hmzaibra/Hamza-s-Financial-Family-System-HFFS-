@@ -33,11 +33,18 @@ conn.execute(
     "timezone, is_active, created_at) VALUES (1,'sam','Sam',?,'admin',1,'Africa/Cairo',1,'t')",
     (generate_password_hash("shots-password"),))
 conn.execute(
-    "INSERT INTO accounts (id, name, type, currency, owner_id, is_active, sort_order, created_at) "
-    "VALUES (1,'InstaPay','instapay','EGP',NULL,1,10,'t'),"
-    "       (2,'CIB Current','bank','EGP',NULL,1,20,'t'),"
-    "       (3,'Cash','cash','EGP',NULL,1,30,'t'),"
-    "       (4,'DE Giro','bank','EUR',1,1,40,'t')")
+    "INSERT INTO accounts (id, name, type, currency, is_active, sort_order, created_at) "
+    "VALUES (2,'CIB Current','bank','EGP',1,20,'t'),"
+    "       (3,'Cash','cash','EGP',1,30,'t'),"
+    "       (4,'DE Giro','bank','EUR',1,40,'t')")
+# An Instapay row needs its handle and the account it draws on (004), and the
+# person it belongs to is a row in account_owners now rather than a column (006).
+conn.execute(
+    "INSERT INTO accounts (id, name, type, currency, parent_account_id, is_active, "
+    "sort_order, created_at, instapay_handle) "
+    "VALUES (1,'Sam - @sam_pay','instapay','EGP',2,1,10,'t','@sam_pay')")
+conn.execute(
+    "INSERT INTO account_owners (account_id, user_id, created_at) VALUES (4,1,'t')")
 conn.execute(
     "INSERT INTO merchants (id, name, default_category_id, default_is_online, default_account_id, "
     "is_system, is_active, created_at) VALUES "

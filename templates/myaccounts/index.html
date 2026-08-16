@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}My accounts — Expenses{% endblock %}
+
+{# The child rows already say "debit card on CIB Current" in their meta line, so
+   the balance beside them does not repeat where it came from. #}
+{% macro balance(a) %}
+  {% set b = balances.get(a.id) %}
+  <span class="bal">
+    <span class="bal__amount num {% if overdrawn.get(a.id) %}bal--over{% endif %}">
+      {%- if b %}{{ b.minor|money(b.currency) }}{% else %}—{% endif -%}
+    </span>
+    <span class="bal__note">
+      {%- if b -%}
+        {{ b.currency }}{% if b.approximate %} · approximate{% endif %}
+      {%- endif -%}
+    </span>
+  </span>
+{% endmacro %}
+
+{% block content %}
+  <div class="toolbar">
+    <h1 class="toolbar__title">My accounts</h1>
+  </div>
+
+  {% if current_user['role'] == 'admin' %}
+    <p class="hint">
+      You are an admin, so this is every account in the household.
+    </p>
+  {% endif %}
+
+  <div class="card">
+    {% if accounts %}
+      <ul class="list">
+        {% for a in accounts %}
+          <li><a class="list__item" href="{{ url_for('myaccounts.summary', account_id=a.id) }}">
+            <span class="list__main">
+              <span class="list__title">
+                <span class="acct-emoji" aria-hidden="true">{{ a.type|account_emoji }}</span>{{ a.name }}
+              </span>
+              <span class="list__meta">
+                {{ a.type|replace('_', ' ') }}
+                · {% if owners.get(a.id) %}{{ owners[a.id]|join(' & ') }}{% else %}household{% endif %}
+                {%- if a.card_expires_on %} · expires {{ a.card_expires_on }}{% endif %}
+              </span>
+            </span>
+            {{ balance(a) }}
+          </a></li>
+
+          {# The cards and the Instapay handle sit under the account they draw
+             on, indented, showing its balance. That is the whole meaning of the
+             link: the same money reached a different way. #}
+          {% for c in children.get(a.id, []) %}
+            <li><a class="list__item list__item--child"
+                   href="{{ url_for('myaccounts.summary', account_id=c.id) }}">
+              <span class="list__main">
+                <span class="list__title">
+                  <span class="acct-emoji" aria-hidden="true">{{ c.type|account_emoji }}</span>{{ c.name }}
+                </span>
+                <span class="list__meta">
+                  {{ c.type|replace('_', ' ') }} on {{ a.name }}
+                  {%- if c.card_expires_on %} · expires {{ c.card_expires_on }}{% endif %}
+                </span>
+              </span>
+              {{ balance(c) }}
+            </a></li>
+          {% endfor %}
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty">
+        <p class="empty__title">No accounts yet</p>
+        <p class="empty__body">
+          {% if current_user['role'] == 'admin' %}
+            Add one in Setup → Accounts and it will show up here.
+          {% else %}
+            Nobody has put your name on an account yet. Ask an admin to add you
+            in Setup → Accounts.
+          {% endif %}
+        </p>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

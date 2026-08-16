@@ -16,6 +16,7 @@ from flask import (
 )
 from werkzeug.security import generate_password_hash
 
+import accounts as acct
 import balances as bal
 import limits as budgets
 from blueprints.auth import admin_required
@@ -118,10 +119,10 @@ def accounts():
               f"{'has' if len(expired) == 1 else 'have'} been switched off.", "error")
 
     rows = query(
-        "SELECT a.*, u.display_name AS owner_name FROM accounts a "
-        "LEFT JOIN users u ON u.id = a.owner_id "
-        "ORDER BY a.is_active DESC, a.sort_order, a.name"
-    )
+        "SELECT a.* FROM accounts a ORDER BY a.is_active DESC, a.sort_order, a.name")
+    # Since 006 an account can carry several names, so the owner is a list and
+    # arrives in one query rather than one join that can only ever return one.
+    names = acct.owner_names()
     # Linked cards are listed underneath the account they draw on rather than as
     # peers of it, because that is how the money actually works: the card is a
     # way of reaching the bank balance, not a second balance.
@@ -141,6 +142,7 @@ def accounts():
         children=children,
         parent_types=PARENT_TYPES,
         balances=money,
+        owners=names,
         overdrawn=overdrawn,
         any_overdrawn=any(overdrawn.values()),
     )
@@ -153,10 +155,20 @@ def _account_form_view(account, values, error=None, status: int = 200):
             account=account,
             users=query(
                 "SELECT id, display_name FROM users WHERE is_active = 1 ORDER BY display_name"),
+            # A set, so the template asks "is this person on it" rather than
+            # "is this person the one".
+            owner_ids=(values.get("owner_ids")
+                       if isinstance(values.get("owner_ids"), (set, list))
+                       else {int(v) for v in (values.getlist("owner_ids")
+                                              if hasattr(values, "getlist") else [])
+                             if str(v).isdigit()}),
             # Only a standalone bank or wallet can be on the receiving end of a
             # link, and nothing may be linked to itself.
+            # A card hung off an account defaults to that account's people, so
+            # the form has to know who they are before anything is picked.
+            parent_owners=acct.owner_id_map(),
             parents=query(
-                "SELECT id, name, type, currency, owner_id FROM accounts "
+                "SELECT id, name, type, currency FROM accounts "
                 "WHERE is_active = 1 AND type IN ('bank','wallet') "
                 "  AND parent_account_id IS NULL AND id IS NOT ? "
                 "ORDER BY sort_order, name",
@@ -186,7 +198,9 @@ def account_form(account_id: int | None = None):
 
     # The + buttons on the accounts list arrive here with the type and the
     # parent already decided, so hanging a card off a bank is a name and a save.
-    values: dict[str, str] = {}
+    values: dict = {}
+    if account is not None:
+        values["owner_ids"] = acct.owner_ids(account_id)
     if account is None:
         wanted = (request.args.get("type") or "").strip()
         if wanted in ACCOUNT_TYPES:
@@ -194,7 +208,7 @@ def account_form(account_id: int | None = None):
         parent_id = request.args.get("parent", type=int)
         if parent_id:
             parent = query_one(
-                "SELECT id, currency, owner_id FROM accounts "
+                "SELECT id, currency FROM accounts "
                 "WHERE id = ? AND type IN ('bank','wallet')",
                 (parent_id,),
             )
@@ -204,7 +218,7 @@ def account_form(account_id: int | None = None):
                 # A card on someone's account is theirs until someone says
                 # otherwise. A default, not a rule — a joint account with a card
                 # each is a real arrangement, so the full list stays offered.
-                values["owner_id"] = str(parent["owner_id"] or "")
+                values["owner_ids"] = acct.owner_ids(parent["id"])
 
     return _account_form_view(account, values)
 
@@ -244,9 +258,14 @@ def account_save(account_id: int | None = None):
     name = (form.get("name") or "").strip()
     acc_type = (form.get("type") or "").strip()
     currency = (form.get("currency") or "EGP").strip().upper()
-    owner_id = form.get("owner_id") or None
     sort_order = form.get("sort_order") or "100"
     is_active = 1 if form.get("is_active") else 0
+
+    # Several people may be named on one account (006). Nobody named means the
+    # household's, which is a state rather than a gap — a joint account that
+    # everybody uses does not need a list of everybody.
+    real = {row["id"] for row in query("SELECT id FROM users WHERE is_active = 1")}
+    owner_ids = [int(v) for v in form.getlist("owner_ids") if v.isdigit() and int(v) in real]
 
     if not name:
         return fail("Give the account a name.")
@@ -388,30 +407,32 @@ def account_save(account_id: int | None = None):
                     return fail(err)
 
     fields = (
-        name, acc_type, currency, owner_id, opening, is_active, int(sort_order or 100),
+        name, acc_type, currency, opening, is_active, int(sort_order or 100),
         parent_id, network, color, withdrawal, local_limit, intl_limit, expires_on, handle,
     )
 
     try:
         if account is None:
-            execute(
-                "INSERT INTO accounts (name, type, currency, owner_id, opening_balance_minor, "
+            cur = execute(
+                "INSERT INTO accounts (name, type, currency, opening_balance_minor, "
                 "is_active, sort_order, parent_account_id, card_network, card_color, "
                 "withdrawal_limit_minor, credit_limit_local_minor, credit_limit_intl_minor, "
                 "card_expires_on, instapay_handle, created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 fields + (utc_now(),),
             )
+            acct.set_owners(cur.lastrowid, owner_ids)
             flash(f"Added {name}.", "ok")
         else:
             execute(
-                "UPDATE accounts SET name=?, type=?, currency=?, owner_id=?, "
+                "UPDATE accounts SET name=?, type=?, currency=?, "
                 "opening_balance_minor=?, is_active=?, sort_order=?, parent_account_id=?, "
                 "card_network=?, card_color=?, withdrawal_limit_minor=?, "
                 "credit_limit_local_minor=?, credit_limit_intl_minor=?, card_expires_on=?, "
                 "instapay_handle=? WHERE id=?",
                 fields + (account_id,),
             )
+            acct.set_owners(account_id, owner_ids)
             # Instapay is the same money as the account behind it, so a currency
             # change on the parent has to reach the handle too.
             if acc_type in PARENT_TYPES:

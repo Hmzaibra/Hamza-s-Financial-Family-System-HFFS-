@@ -17,6 +17,35 @@
         <span class="total__currency">{{ currency }}</span>
         <span class="total__value num">{{ total|money(currency) }}</span>
       </p>
+
+      {# Income and the net, whenever there is any. A month of pure spending
+         gets neither, because the net would be the number above with a minus
+         sign on it and a second figure that says nothing new is noise on the
+         one screen meant to be read at a glance. #}
+      {% if income %}
+        <ul class="figures">
+          <li class="figures__item">
+            <span class="figures__label">Came in</span>
+            <span class="figures__value num amt amt--income">+{{ income|money(currency) }}</span>
+          </li>
+          <li class="figures__item">
+            <span class="figures__label">Net</span>
+            <span class="figures__value num {% if net < 0 %}bal--over{% endif %}">
+              {%- if net > 0 %}+{% elif net < 0 %}−{% endif %}{{ net|abs|money(currency) }}
+            </span>
+          </li>
+        </ul>
+      {% endif %}
+
+      {% if counts.get('transfer') %}
+        {# Counted, never totalled. Moving your own money between your own
+           accounts is not income and not expenditure, and adding it to either
+           would count the same money twice. #}
+        <p class="hint">
+          {{ counts['transfer'] }} transfer{{ 's' if counts['transfer'] > 1 }} this month,
+          which move money rather than spend it.
+        </p>
+      {% endif %}
       {% if unconverted %}
         {# Counted, never guessed at. A charge in a currency with no captured
            rate cannot be turned into base without inventing one. #}
@@ -54,6 +83,9 @@
           {% endfor %}
         </ul>
       {% else %}
+        {# Two different empty states, because they are two different facts and
+           telling someone who has logged three entries that nothing happened is
+           how a screen loses their trust. #}
         <div class="empty">
           <span class="empty__glyph" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
@@ -62,10 +94,24 @@
               <path d="M9.5 9h5M9.5 13h5" />
             </svg>
           </span>
-          <p class="empty__title">Nothing logged this month</p>
-          <p class="empty__body">
-            Once entries start coming in, this is where the month adds up.
-          </p>
+          {% if logged %}
+            <p class="empty__title">No spending this month</p>
+            <p class="empty__body">
+              {{ logged }} entr{{ 'y' if logged == 1 else 'ies' }} logged —
+              {% if counts.get('income') %}
+                {{ counts['income'] }} income{% if counts.get('transfer') %},{% endif %}
+              {% endif %}
+              {%- if counts.get('transfer') %}
+                {{ counts['transfer'] }} transfer{{ 's' if counts['transfer'] > 1 }}
+              {%- endif %}. This card breaks down what you spent, so it fills up
+              the first time you log a purchase.
+            </p>
+          {% else %}
+            <p class="empty__title">Nothing logged this month</p>
+            <p class="empty__body">
+              Once entries start coming in, this is where the month adds up.
+            </p>
+          {% endif %}
         </div>
       {% endif %}
     </div>

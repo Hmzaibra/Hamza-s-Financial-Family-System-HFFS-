@@ -1,5 +1,9 @@
-{# Bottom tabs: thumb-reachable, three destinations, 56px targets. Settings is
-   admin-only, so a member sees two. #}
+{# Bottom tabs: thumb-reachable, 56px targets. Setup is admin-only, so a member
+   sees four where an admin sees five.
+
+   "Accounts" is not the Setup screen of the same name. That one is where
+   accounts are created; this one is where you look at your money, which is the
+   reason the app exists and does not belong two taps inside administration. #}
 <nav class="tabbar" aria-label="Sections">
   <a href="{{ url_for('entry.form') }}"
      {% if request.endpoint == 'entry.form' %}aria-current="page"{% endif %}>
@@ -27,6 +31,16 @@
       <path d="M4 6h16M4 12h16M4 18h11" />
     </svg>
     <span>Entries</span>
+  </a>
+
+  <a href="{{ url_for('myaccounts.index') }}"
+     {% if request.blueprint == 'myaccounts' %}aria-current="page"{% endif %}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="2.5" y="6" width="19" height="13" rx="2.5" />
+      <path d="M2.5 10.5h19M6.5 15h3" />
+    </svg>
+    <span>Accounts</span>
   </a>
 
   {% if current_user['role'] == 'admin' %}

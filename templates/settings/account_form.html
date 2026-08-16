@@ -79,7 +79,7 @@
         <option value="">—</option>
         {% for p in parents %}
           <option value="{{ p.id }}" data-currency="{{ p.currency }}"
-                  data-owner="{{ p.owner_id or '' }}"
+                  data-owners="{{ parent_owners.get(p.id, [])|join(',') }}"
                   {% if val('parent_account_id')|string == p.id|string %}selected{% endif %}>
             {{ p.type|account_emoji }} {{ p.name }} · {{ p.type|replace('_', ' ') }}
           </option>
@@ -91,20 +91,34 @@
       </span>
     </div>
 
+    {# Since 006 an account can carry several names — a joint current account
+       belongs to both people, and "shared" used to be the only way to say that,
+       which threw the information away rather than recording it.
+
+       Tick boxes rather than a multi-select: a <select multiple> on a phone is
+       a scroll trap, and this list is three or four people.
+
+       This affects display and grouping only. **Who can see a transaction
+       follows the transaction's owner, never the account's** — a shared bank
+       account must not expose one person's spending to everyone who draws on
+       it, and that is what section 4 is for. Admin sees every account either
+       way, because admin already sees every entry in them. #}
+    <fieldset class="field fieldset">
+      <legend class="field__label">Belongs to</legend>
+      {% for u in users %}
+        <label class="check" for="owner-{{ u.id }}">
+          <input type="checkbox" id="owner-{{ u.id }}" name="owner_ids" value="{{ u.id }}"
+                 {% if u.id in owner_ids %}checked{% endif %} />
+          <span>{{ u.display_name }}</span>
+        </label>
+      {% endfor %}
+      <p class="field__hint">
+        Nobody ticked means the household's, and everyone sees it. Ticking someone
+        does not hide any purchase from anyone — that follows who logged it.
+      </p>
+    </fieldset>
+
     <div class="grid-2">
-      <div class="field">
-        <label class="field__label" for="owner_id">Belongs to</label>
-        <select class="input" id="owner_id" name="owner_id">
-          {# NULL owner means household. It affects display and filtering only —
-             who can see a transaction follows the transaction's owner. #}
-          <option value="">Household (shared)</option>
-          {% for u in users %}
-            <option value="{{ u.id }}" {% if val('owner_id')|string == u.id|string %}selected{% endif %}>
-              {{ u.display_name }}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
       <div class="field">
         <label class="field__label" for="sort_order">Order in lists</label>
         <input class="input num" id="sort_order" name="sort_order" type="number"

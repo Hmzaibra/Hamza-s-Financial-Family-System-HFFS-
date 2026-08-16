@@ -341,3 +341,142 @@ and says how many photos go with it.
 Being a link rather than a form also means the Enter key inside the fields above
 can no longer reach it at all, which the old separate-`<form>` trick only
 half-solved.
+
+---
+
+## The round after: six things from using it
+
+Nothing here is a phase. It is what the first week of real use turned up, and
+two of the six were bugs that had been sitting in the schema since Phase 1.
+
+### A transfer that was out by a factor of fifty-five
+
+10.00 EGP left a bank account and 10.00 EUR arrived in another. Both numbers
+were individually valid, both currencies were individually right, and nothing
+anywhere objected.
+
+Two things were wrong. The first was on the edit screen: change the destination
+to an account in a different currency and the arriving amount stays in the box,
+still holding a number about the currency it is no longer in. `ledger-edit.js`
+now wipes it, and `entry.js` does the same and offers the cached rate's answer
+as a starting point.
+
+But JavaScript is a convenience here and the rule has to hold without it, so the
+real fix is `transactions._check_transfer_rate()`. It converts both sides to base
+with the cached rates and refuses a tenfold disagreement with a sentence saying
+how far out it is.
+
+Deliberately generous, and deliberately silent when the cache cannot answer. The
+app does not compute the arriving amount and should not — a bank's rate on the
+day, with its spread and its fee, is not the mid-market rate and only the person
+holding the statement knows it. So this checks *plausibility*, never
+correctness. A guard that fires on a real transfer is worse than no guard: people
+learn to work around it, and then it catches nothing. 550 EGP arriving as 9, 10
+or 12 EUR all pass.
+
+One consequence worth writing down: **the guard is only as awake as the cron
+entry**. An empty `fx_rates` means nothing to compare against and nothing said.
+
+### The Month tab said nothing had happened
+
+A ledger with two income entries and one transfer in it, and the month screen
+read "Nothing logged this month". Technically true of *spending*, and a useless
+thing to tell somebody who had logged three things that morning.
+
+"No spending" and "no activity" are different sentences and only one of them was
+true. The screen now carries income and the net beside the spend total whenever
+there is any income, and the empty state distinguishes the two cases — including
+counting what *was* logged, so it is obvious the entries landed.
+
+Transfers are counted and never totalled. Moving your own money between your own
+accounts is neither income nor expenditure, and adding it to either would count
+the same money twice.
+
+### The merchant field on a transfer
+
+A transfer moves money between two of your own accounts. There is no
+counterparty to name, and `_prepare()` has dropped the field on one since Phase 1
+— so the edit screen was offering a control that quietly did nothing, which is
+exactly what the "nothing dead ships" rule is about. It is hidden server-side
+when a transfer is opened, which is the case that matters and the one that works
+with scripting off, and `ledger-edit.js` covers switching the type in place.
+
+### The list opens on you
+
+Your own spending is the question you have nine times out of ten, so
+`/transactions` filters to the reader by default.
+
+The awkward part is what that does to "no filter". A missing `user_id` used to
+mean everyone and now means you, so not-filtering had to become something you
+can *say*: `user_id=all`. That keeps the unfiltered list a link — the querystring
+is still the whole of the filter state, and a filtered view is still something
+you can bookmark or send to somebody.
+
+The default does not count towards the "3 filters applied" badge. A badge that is
+never zero is a badge nobody reads.
+
+### An account can belong to more than one person
+
+`accounts.owner_id` held exactly one user, and a joint current account belongs to
+both people. "Shared" (NULL) was the only way to say "both", which threw the
+information away rather than recording it.
+
+`account_owners` replaces it. The old column is retired the way
+`merchants.is_system` was in 004 — left in place because 001 is immutable and
+rebuilding a table six triggers reference is the bigger risk — except this time
+with triggers that *refuse* a write to it. Two sources of truth about who owns
+what would disagree within a week, and the disagreement would be silent.
+
+The thing worth being loud about: **ownership is not visibility, and 006 did not
+make it one.** Section 4 keys off the transaction's owner and never off the
+account's, precisely so a shared bank account does not expose one person's
+spending to everyone who draws on it. Putting two people on an account changes
+whose list it appears in. It shows neither of them a purchase the other made
+privately, and `verify_myaccounts.py` checks exactly that rather than trusting
+the sentence.
+
+### My accounts, and the balance walk
+
+The account history page was on the "deliberately left out" list in Phase 1, on
+the grounds that the list's account filter answered the same question. That
+stopped being true the moment the question became "how did the balance get
+here", which a filtered list cannot answer at all.
+
+The walk goes **backwards from the balance now**, and that direction is the whole
+design. Forwards from the opening balance would accumulate every rounding
+decision and every unconvertible leg, and would disagree with the number on the
+accounts screen by the time it reached the top — two screens showing the same
+account and disagreeing is worse than either being slightly off.
+
+Both legs of a transfer are counted per row, so money moved between a card and
+the account behind it nets to zero instead of appearing as a movement that never
+happened.
+
+And this is where section 4 and the balance exception meet head on. Filtering the
+arithmetic prints a wrong balance. Unfiltering the list hands you somebody's
+private purchases. Neither can win, so the walk reads everything, the list shows
+only what you may see, and a marker row says how many entries were skipped
+between two visible ones. The step in the number is already on screen; the marker
+only stops it looking like a bug. It says a count and nothing else — no whose,
+no what, no how much.
+
+Pagination is a link in fixed steps that says how many are left, rather than an
+infinite scroll. It needs no JavaScript and it is honest about the cost of the
+walk.
+
+### What was rejected this round
+
+**A modal for the account summary.** It was asked for as a pop-up, and a page is
+what shipped: on a phone a full screen with a working back button *is* the
+pop-up, and a `<dialog>` needs `showModal()` — so with scripting off the content
+would simply not exist.
+
+**Letting the account owners decide who sees transactions.** It would make the
+"My accounts" screen more powerful and it would quietly gut section 4. The two
+rules are kept apart on purpose and the templates say so where someone is
+choosing owners, because that is the screen where the wrong assumption gets made.
+
+**Computing the arriving amount of a transfer.** The cached rate fills the box as
+a starting point and is never what gets stored. The rate on the day of the
+transfer is the bank's, not the mid-market one, and the app has no way to know
+it.

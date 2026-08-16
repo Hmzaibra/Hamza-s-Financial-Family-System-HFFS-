@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Edit entry — Expenses{% endblock %}
+{% block head_scripts %}
+  <script src="{{ url_for('static', filename='js/ledger-edit.js') }}" defer></script>
+{% endblock %}
+
+{% set is_transfer = values.get('direction') == 'transfer' %}
 
 {% macro selected(a, b) %}{% if a is not none and b is not none and a|string == b|string %}selected{% endif %}{% endmacro %}
 
@@ -18,7 +23,7 @@
      something that does, so every field is visible at once and nothing is
      collapsed or auto-filled behind your back. It still goes through
      transactions._prepare(), so the rules are identical. #}
-  <form method="post" class="card card--pad"
+  <form method="post" class="card card--pad" id="edit-form"
         action="{{ url_for('ledger.save', txn_id=txn.id) }}">
     {{ csrf_input() }}
 
@@ -54,7 +59,14 @@
       </div>
     </div>
 
-    <div class="field">
+    {# A transfer moves money between two of your own accounts. There is no
+       counterparty to name, and _prepare() has always dropped the field on one
+       — so offering it here was a control that quietly did nothing.
+
+       Hidden server-side for a transfer being opened, which is the common case
+       and the one that works with JavaScript off; ledger-edit.js covers
+       switching the type while the page is open. #}
+    <div class="field" id="merchant-field" {% if is_transfer %}hidden{% endif %}>
       <label class="field__label" for="merchant_id">Merchant</label>
       <select class="input" id="merchant_id" name="merchant_id">
         <option value="">None</option>
@@ -92,11 +104,15 @@
         <select class="input" id="counter_account_id" name="counter_account_id">
           <option value="">—</option>
           {% for a in accounts %}
-            <option value="{{ a.id }}" {{ selected(values.get('counter_account_id'), a.id) }}>{{ a.name }}</option>
+            <option value="{{ a.id }}" data-currency="{{ a.currency }}"
+                    {{ selected(values.get('counter_account_id'), a.id) }}>{{ a.name }}</option>
           {% endfor %}
         </select>
       </div>
-      <div class="field">
+      {# data-currency above is what lets the script notice the destination has
+         changed currency and wipe the number below, which is now about a
+         currency it is no longer in. #}
+      <div class="field" id="counter-amount-field">
         <label class="field__label" for="counter_amount">Amount that arrived</label>
         <input class="input num" id="counter_amount" name="counter_amount" type="text" inputmode="decimal"
                value="{{ values.get('counter_amount', '') }}" />

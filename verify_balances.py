@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -368,6 +369,108 @@ def main() -> int:
         login(c, "mem")
         check("and someone else's entry cannot even be asked about",
               c.get("/transactions/2/delete").status_code in (403, 404))
+
+    print("\na transfer has no merchant, so the edit screen stops offering one")
+    transfer_id = None
+    with app.app_context(), app.test_request_context():
+        pass
+    rows = sql("SELECT id FROM transactions WHERE direction = 'transfer' LIMIT 1")
+    transfer_id = rows[0][0] if rows else None
+    with app.test_client() as c:
+        login(c)
+        if transfer_id:
+            page = c.get(f"/transactions/{transfer_id}/edit").data
+            check("the merchant field is hidden on a transfer, with JavaScript off",
+                  b'id="merchant-field" hidden' in page)
+        spend = sql("SELECT id FROM transactions WHERE direction = 'spend' LIMIT 1")[0][0]
+        page = c.get(f"/transactions/{spend}/edit").data
+        check("and shown on a spend, where it means something",
+              b'id="merchant-field" hidden' not in page and b'id="merchant-field"' in page)
+
+        js = Path("static/js/ledger-edit.js").read_text(encoding="utf-8")
+        check("the script covers changing the type while the page is open",
+              "syncMerchant" in js)
+        check("and clears an arriving amount that is about a currency it left behind",
+              "counterAmount.value = \"\"" in js)
+        check("the destination options carry the currency that makes that possible",
+              b"data-currency" in page)
+
+    print("\nthe list opens on you rather than on everybody")
+    with app.test_client() as c:
+        login(c, "mem")
+        page = c.get("/transactions").data
+        check("a member's list is their own by default", b"Your" in page)
+        check("without that counting as a filter they applied",
+              b"applied" not in page.split(b"disclosure__summary")[1][:200])
+        check("and it offers the whole household as a link", b"Show everyone" in page)
+
+        mine = c.get("/transactions").data
+        everyone = c.get("/transactions?user_id=all").data
+        check("the two are different lists",
+              mine.count(b"list__item") < everyone.count(b"list__item"))
+        check("asking for everyone does count as a filter", b"applied" in everyone)
+        check("'Anyone' is a value rather than an empty option",
+              b'value="all"' in page)
+        check("and you can still ask for one named person",
+              c.get("/transactions?user_id=1").status_code == 200)
+
+    with app.test_client() as c:
+        login(c)
+        page = c.get("/transactions").data
+        check("the person picker marks which one is you", b"(you)" in page)
+
+    print("\nthe month screen answers even when nothing was spent")
+    with app.test_client() as c:
+        login(c)
+        page = c.get("/dashboard").data
+        check("a month of pure spending gets no second figure — the net would be "
+              "the total above with a minus sign, said twice",
+              b"Came in" not in page)
+
+    # A ledger with income and a transfer in it and no spending at all — which is
+    # what a household looks like on day one, and used to read as "nothing
+    # logged this month".
+    other = Path(tempfile.mkdtemp())
+
+    class Q(Config):
+        DATABASE_PATH = other / "quiet.db"
+        UPLOAD_DIR = other / "uploads"
+        SECRET_KEY = "test-key"
+        SESSION_COOKIE_SECURE = False
+
+    qconn = dbmod.connect(Q.DATABASE_PATH)
+    migrate(qconn, Config.MIGRATIONS_DIR, log=lambda *_: None)
+    qconn.execute(
+        "INSERT INTO users (id, username, display_name, password_hash, role, default_shared, "
+        "timezone, is_active, created_at) VALUES (1,'admin','Admin',?,'admin',1,'Africa/Cairo',"
+        "1,'t')", (generate_password_hash("pw12345678"),))
+    qconn.execute(
+        "INSERT INTO accounts (id, name, type, currency, opening_balance_minor, is_active, "
+        "sort_order, created_at) VALUES (1,'CIB','bank','EGP',0,1,10,'t'),"
+        "(2,'Cash','cash','EGP',0,1,20,'t')")
+    today = date.today().isoformat()
+    qconn.execute(
+        "INSERT INTO transactions (user_id, occurred_on, direction, amount_minor, currency, "
+        "account_id, is_online, is_shared, receiptless, created_at, updated_at) VALUES "
+        "(1,?,'income',500000,'EGP',1,0,1,0,'t','t'), (1,?,'income',20000,'EGP',1,0,1,0,'t','t')",
+        (today, today))
+    qconn.commit()
+    qconn.close()
+
+    quiet = create_app(Q)
+    quiet.config.update(TESTING=True)
+    with quiet.test_client() as c:
+        page = c.get("/login").data
+        c.post("/login", data={"username": "admin", "password": "pw12345678",
+                               "_csrf": token(page)})
+        page = c.get("/dashboard").data
+        check("two income entries and no spending does not read as nothing happened",
+              b"Nothing logged this month" not in page)
+        check("it says what is actually true instead", b"No spending this month" in page)
+        check("and counts what was logged", b"2 entries logged" in page)
+        check("with the income total on screen", b"5,200.00" in page)
+        check("income gets its own figure once there is any", b"Came in" in page)
+        check("and so does the net", b"Net" in page)
 
     print()
     if failures:

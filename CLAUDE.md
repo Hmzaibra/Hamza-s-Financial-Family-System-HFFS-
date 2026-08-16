@@ -11,16 +11,16 @@ why things are the way they are before proposing to change them.
 .venv/bin/flask --app app run --debug                     # POSIX
 ```
 
-Verification — run **all seven** after any change; they build throwaway
+Verification — run **all eight** after any change; they build throwaway
 databases and never touch `app.db` or `uploads/`:
 
 ```bash
 python verify_phase0.py && python verify_auth.py && python verify_phase1.py && \
   python verify_accounts.py && python verify_balances.py && \
-  python verify_receipts.py && python verify_limits.py
+  python verify_receipts.py && python verify_limits.py && python verify_myaccounts.py
 ```
 
-492 checks at time of writing. A failing check is a real regression or a rule that
+615 checks at time of writing. A failing check is a real regression or a rule that
 changed on purpose — if the latter, update the check *and* say so, never delete it.
 
 Several are *source* checks rather than behavioural ones: no `date.today()` in
@@ -54,7 +54,9 @@ check what you thought to ask.
    shared argument is that a filtered aggregate over the household is a *wrong*
    number, not a partial one. In `limits.py` what section 4 filters instead is
    which budgets a person may see at all (`visible_limits()`), never the
-   arithmetic inside one.
+   arithmetic inside one. `accounts.history()` composes both: the walk is
+   balance arithmetic and reads everything, the list of rows is filtered, and
+   the gap between them is shown as a count rather than hidden.
 5. **Every transaction write goes through `transactions._prepare()`.** Create
    and edit both call it, so an edit cannot pass a check an insert would fail.
    DB constraints are the backstop, not the guard.
@@ -67,7 +69,7 @@ check what you thought to ask.
 8. **No inline `style=` or `on*=` attributes.** The CSP has no `unsafe-inline`, so
    they silently do not render. User-supplied colours go in SVG `fill` attributes.
 9. **Migrations are immutable once applied.** Add a new numbered file; never edit
-   `001`–`005`. The runner reports a changed checksum rather than re-running.
+   `001`–`006`. The runner reports a changed checksum rather than re-running.
 10. **The entry form works with JavaScript off.** JS may only remove waiting.
     Anything it enforces must also be enforced server-side. This is why the
     camera is a `<label>` wrapping a hidden file input rather than a button,
@@ -76,7 +78,15 @@ check what you thought to ask.
     than a `confirm()`. Note that `entry.js` no longer reads an empty account
     select as "untouched" — the box always names an account, and a `touched`
     flag carries that meaning instead.
-11. **Files on disk are never deleted without the database knowing first.**
+11. **Ownership is not visibility.** `account_owners` says whose "My accounts"
+    an account appears in. Section 4 still keys off the transaction's owner and
+    never off the account's, so putting two people on a joint account shows
+    neither of them a purchase the other made privately. `accounts.py` says so
+    in its docstring and `verify_myaccounts.py` checks it directly.
+    `accounts.owner_id` is retired — 006 has triggers that refuse a write to it,
+    because two sources of truth about who owns what would disagree within a
+    week.
+12. **Files on disk are never deleted without the database knowing first.**
     `ON DELETE CASCADE` does not touch the filesystem, so an `AFTER DELETE`
     trigger records the debt in `orphaned_files` and `receipts.reap()` pays it.
     That trigger only fires on a cascade because `db.py` sets
@@ -103,25 +113,27 @@ is the balance arithmetic and the month figures. `ledger.py` is the list, edit
 and delete. `reference.py` is admin CRUD for accounts, categories, merchants,
 people and budgets. `receipts.py` is the image pipeline and orphan cleanup;
 `blueprints/receipts.py` is the only way a photo leaves the server. `limits.py`
-is budget maths and the alert sweep. `fx.py` is the rate cache and `telegram.py`
+is budget maths and the alert sweep. `accounts.py` is ownership, the per-account
+summary, and the balance walk; `blueprints/myaccounts.py` is the read-only side
+of accounts, as against `reference.py`'s admin CRUD. `fx.py` is the rate cache and `telegram.py`
 is the sender — the two files that touch the internet. `visibility.py` is the
 section 4 rule, implemented once. `money.py` owns every currency-shaped
 decision.
 
 ## Current state
 
-**Phases 0 through 3 are complete.** Balances, the month breakdown, the entry
-list, receipt photos, and budgets that warn over Telegram are all in.
+**Phases 0 through 3 are complete**, plus the account screens: My accounts, a
+per-account summary with limit wheels, and a balance history that walks the
+balance backwards through every entry.
 
 Phase 4 is reporting, CSV, a PWA manifest, and deployment: gunicorn behind
 `tailscale serve`, with `SESSION_COOKIE_SECURE=1` and three cron entries —
 `fetch-rates` daily, `check-limits` hourly, `sweep-uploads` weekly.
 
-Two things are open deliberately.
-
-The **account history page** (the list scoped to one account, with a card showing
-its parent's rows) was left out because the account filter on the list already
-answers the same question — build it when that stops being true.
+`fetch-rates` matters more than it used to. `_check_transfer_rate()` refuses a
+cross-currency transfer whose two sides are out by more than a factor of ten,
+and with an empty `fx_rates` cache it has nothing to compare against and stays
+silent. The guard is only as awake as the cron entry.
 
 **OCR on receipt photos** is not planned. Reading a total off a till slip is a
 different project with a different failure mode: a number that is confidently

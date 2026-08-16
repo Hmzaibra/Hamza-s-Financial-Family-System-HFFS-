@@ -356,6 +356,59 @@ def _check_credit_limit(
         )
 
 
+def _check_transfer_rate(amount_minor: int, currency: str,
+                         counter_minor: int, counter_currency: str) -> None:
+    """Refuse a cross-currency transfer whose two sides cannot both be true.
+
+    This exists because of a real one: 10.00 EGP left a bank account and 10.00
+    EUR arrived in another, and nothing anywhere objected. Both numbers were
+    individually valid, the currencies were individually right, and the entry
+    was wrong by a factor of fifty-five.
+
+    The app deliberately does not compute the arriving amount — a bank's rate on
+    the day, with its spread and its fee, is not the mid-market rate and only the
+    person holding the statement knows it. So this checks *plausibility*, not
+    correctness: both sides are converted to base with the cached rates and
+    compared. A tenfold disagreement is not a bad rate, it is a different number.
+
+    Deliberately generous, and silent when the cache cannot answer. A guard that
+    fires on a real transfer would be worse than no guard at all — people would
+    learn to work around it, and then it would catch nothing.
+    """
+    if currency == counter_currency:
+        return
+
+    import fx
+
+    base = base_currency()
+    rates = fx.cached(base)
+
+    def to_base(minor: int, code: str) -> int | None:
+        if code == base:
+            return minor
+        known = rates.get(code)
+        return convert_to_base(minor, known["rate"]) if known else None
+
+    left = to_base(amount_minor, currency)
+    right = to_base(counter_minor, counter_currency)
+    if not left or not right:
+        # No cached rate for one side. `flask fetch-rates` has never run, or the
+        # currency is not one it fetches. Nothing to compare against.
+        return
+
+    bigger, smaller = max(left, right), min(left, right)
+    if bigger <= smaller * 10:
+        return
+
+    raise EntryError(
+        f"{format_minor(amount_minor, currency)} {currency} is not worth "
+        f"{format_minor(counter_minor, counter_currency)} {counter_currency} — "
+        f"that is out by a factor of about {bigger // max(smaller, 1)}. Enter the "
+        f"amount that actually landed in the other account.",
+        "counter_amount",
+    )
+
+
 def _valid_date(raw: str, user_tz: str) -> str:
     raw = (raw or "").strip()
     if not raw:
@@ -553,6 +606,10 @@ def _prepare(user, form, exclude_id: int | None = None) -> dict:
                 counter_amount_minor = parse_to_minor(raw_counter, counter_currency)
             except MoneyError as exc:
                 raise EntryError(str(exc), "counter_amount") from None
+
+            # The two sides have to be able to be the same money.
+            _check_transfer_rate(amount_minor, currency,
+                                 counter_amount_minor, counter_currency)
 
         # A transfer is movement between your own accounts, not a purchase.
         merchant_id = None

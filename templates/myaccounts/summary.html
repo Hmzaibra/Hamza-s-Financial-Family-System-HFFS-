@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }} — Expenses{% endblock %}
+
+{# One ring. The filled arc is the first dash of a dashed stroke, so the only
+   thing that varies is a length — and stroke-dasharray is an SVG presentation
+   attribute, which the CSP allows where an inline style would silently not
+   render at all (rule 8). #}
+{% macro wheel(w) %}
+  <li class="wheel">
+    <svg class="wheel__ring {% if w.over %}wheel__ring--over{% elif w.ring >= 80 %}wheel__ring--warn{% endif %}"
+         viewBox="0 0 64 64" role="img"
+         aria-label="{{ w.label }}: {{ w.pct }} percent of {{ w.ceiling|money(w.currency) }} {{ w.currency }} used">
+      <circle class="wheel__track" cx="32" cy="32" r="{{ w.radius }}" />
+      {# Rotated so the arc starts at twelve o'clock rather than three. #}
+      <circle class="wheel__fill" cx="32" cy="32" r="{{ w.radius }}"
+              stroke-dasharray="{{ w.dash }}" transform="rotate(-90 32 32)" />
+    </svg>
+    <span class="wheel__pct num">{{ w.pct }}%</span>
+    <span class="wheel__label">{{ w.label }}</span>
+    <span class="wheel__meta num">
+      {{ w.used|money(w.currency) }} of {{ w.ceiling|money(w.currency) }}
+    </span>
+    <span class="wheel__note">{{ w.note }}</span>
+  </li>
+{% endmacro %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <p class="eyebrow">{{ account.type|replace('_', ' ') }}</p>
+      <h1>{{ account.name }}</h1>
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="card card--pad">
+      <p class="eyebrow">
+        Balance
+        {%- if account.parent_account_id %} · via {{ settlement.name }}{% endif %}
+      </p>
+      <p class="total">
+        <span class="total__currency">{{ balance.currency if balance else base }}</span>
+        <span class="total__value num {% if overdrawn %}bal--over{% endif %}">
+          {{ balance.minor|money(balance.currency) if balance else '—' }}
+        </span>
+      </p>
+
+      {% if account.parent_account_id %}
+        {# Not a rounding of the truth — it is the truth. A card is a way of
+           reaching the account behind it, not a second pot, so "how much can I
+           spend with this" is answered by that account's balance. #}
+        <p class="hint">
+          This is {{ settlement.name }}'s balance. The card spends it rather than
+          holding money of its own.
+        </p>
+      {% endif %}
+
+      {% if balance and balance.approximate %}
+        <p class="hint">
+          Approximate: {{ balance.unconverted }} entr{{ 'y' if balance.unconverted == 1 else 'ies' }}
+          in {{ balance.unconverted_currencies|join(', ') }} could not be converted, because
+          no rate was captured when they were logged.
+        </p>
+      {% endif %}
+
+      <div class="row row--actions">
+        <a class="btn btn--quiet"
+           href="{{ url_for('myaccounts.history', account_id=account.id) }}">Balance history</a>
+        <a class="btn btn--quiet"
+           href="{{ url_for('ledger.index', account_id=account.id, user_id='all') }}">Every entry</a>
+      </div>
+    </div>
+
+    {# ---- the ceilings ----------------------------------------------------
+       Two unrelated kinds of ceiling in one list, and each says which it is,
+       because they behave completely differently: the bank's limits refuse a
+       save, a budget only ever warns. #}
+    {% if wheels %}
+      <div class="card card--pad">
+        <p class="section__title">Limits</p>
+        <ul class="wheels">
+          {% for w in wheels %}{{ wheel(w) }}{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <div class="card card--pad">
+      <p class="section__title">{{ month_label }}</p>
+      <ul class="figures">
+        <li class="figures__item">
+          <span class="figures__label">Spent</span>
+          <span class="figures__value num amt amt--spend">
+            −{{ month.spent|money(month.currency) }}
+          </span>
+        </li>
+        <li class="figures__item">
+          <span class="figures__label">Came in</span>
+          <span class="figures__value num amt amt--income">
+            +{{ month.received|money(month.currency) }}
+          </span>
+        </li>
+      </ul>
+      {% if month.unconverted %}
+        <p class="hint">
+          {{ month.unconverted }} entr{{ 'y' if month.unconverted == 1 else 'ies' }} in another
+          currency {{ 'is' if month.unconverted == 1 else 'are' }} not counted — no rate was
+          recorded.
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <p class="section__title section__title--pad">Top spending this month</p>
+      {% if month.top %}
+        <ul class="list">
+          {% for c in month.top %}
+            <li class="list__item list__item--static">
+              <span class="list__main">
+                <span class="list__title">
+                  {% if c.icon %}<span class="acct-emoji" aria-hidden="true">{{ c.icon }}</span>{% endif %}{{ c.name }}
+                </span>
+                <span class="list__meta">{{ c.count }} entr{{ 'y' if c.count == 1 else 'ies' }}</span>
+                <span class="sharebar" aria-hidden="true">
+                  <span class="sharebar__fill sharebar__fill--{{ (c.share // 5) * 5 }}"></span>
+                </span>
+              </span>
+              <span class="bal">
+                <span class="bal__amount num">{{ c.minor|money(month.currency) }}</span>
+              </span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty">
+          <p class="empty__title">Nothing spent from here this month</p>
+          <p class="empty__body">
+            The balance history below still has everything, whatever month it happened in.
+          </p>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if owners %}
+      <p class="hint">
+        {{ owners|map(attribute='display_name')|join(' and ') }}
+        {{ 'is' if owners|length == 1 else 'are' }} named on this account. That decides who
+        sees it listed — it does not change who can see the entries made from it, which
+        follows whoever logged them.
+      </p>
+    {% endif %}
+  </div>
+{% endblock %}

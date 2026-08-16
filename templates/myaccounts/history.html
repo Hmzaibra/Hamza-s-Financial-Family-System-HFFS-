@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }} balance history — Expenses{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <p class="eyebrow">Balance history</p>
+      <h1>{{ account.name }}</h1>
+    </div>
+  </div>
+
+  {# The number at the top is where the walk starts. Every row below shows what
+     the balance stood at once that entry had happened, so scrolling down is
+     going backwards in time and watching the figure unwind.
+
+     Walked backwards from now rather than forwards from the opening balance
+     because now is the only figure known to be right — a forward walk would
+     accumulate every rounding decision and disagree with the accounts screen by
+     the time it reached the top. #}
+  <div class="card card--pad">
+    <p class="eyebrow">
+      Balance now
+      {%- if history.settlement.id != account.id %} · {{ history.settlement.name }}{% endif %}
+    </p>
+    <p class="total">
+      <span class="total__currency">{{ history.currency }}</span>
+      <span class="total__value num">{{ history.balance_now|money(history.currency) }}</span>
+    </p>
+    {% if history.approximate %}
+      <p class="hint">
+        Approximate — some entries are in a currency with no captured rate, so they
+        move the balance by an amount this app declines to guess at.
+      </p>
+    {% endif %}
+    <p class="hint">
+      Newest first. Each row is the balance after that entry.
+    </p>
+  </div>
+
+  <div class="card">
+    {% if history.entries %}
+      <ul class="list">
+        {% for e in history.entries %}
+          {% if e.hidden_before %}
+            {# Entries the section 4 rule hides still moved the balance, so the
+               figure steps between two rows with nothing between them. The
+               count explains the step without saying whose, what, or how much —
+               the balance already revealed the net effect, and this reveals
+               nothing further. #}
+            <li class="list__item list__item--static list__item--muted">
+              <span class="list__main">
+                <span class="list__meta">
+                  {{ e.hidden_before }} entr{{ 'y' if e.hidden_before == 1 else 'ies' }}
+                  you cannot see also moved the balance here.
+                </span>
+              </span>
+            </li>
+          {% endif %}
+
+          <li>
+            {% set t = e.row %}
+            <a class="list__item" href="{{ url_for('ledger.edit', txn_id=t.id) }}">
+              <span class="list__main">
+                <span class="list__title">
+                  {%- if t.direction == 'transfer' -%}
+                    {{ t.account_name }} → {{ t.counter_account_name }}
+                  {%- else -%}
+                    {{ t.merchant_name or t.category_name or t.account_name }}
+                  {%- endif -%}
+                </span>
+                <span class="list__meta num">
+                  {{ t.occurred_on }}
+                  · <span class="amt amt--{{ 'income' if e.delta > 0 else 'spend' }}">
+                      {%- if e.delta > 0 %}+{% elif e.delta < 0 %}−{% endif -%}
+                      {{ e.delta|abs|money(history.currency) }}
+                    </span>
+                  {%- if not e.exact %} · not converted{% endif %}
+                </span>
+              </span>
+              <span class="bal">
+                <span class="bal__amount num {% if e.balance_after < 0 %}bal--over{% endif %}">
+                  {{ e.balance_after|money(history.currency) }}
+                </span>
+                <span class="bal__note">{{ history.currency }}</span>
+              </span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty">
+        <p class="empty__title">Nothing has moved through here yet</p>
+        <p class="empty__body">
+          The balance is whatever this account was opened with.
+        </p>
+      </div>
+    {% endif %}
+  </div>
+
+  {# Pagination as a link, in fixed steps, saying how many are left. An infinite
+     scroll would need JavaScript and would hide the cost of the walk; this is
+     honest about both. #}
+  {% if history.more %}
+    <a class="btn btn--quiet btn--wide"
+       href="{{ url_for('myaccounts.history', account_id=account.id, show=show + step) }}">
+      Show {{ step if history.more > step else history.more }} more
+      ({{ history.more }} older entr{{ 'y' if history.more == 1 else 'ies' }})
+    </a>
+  {% elif history.entries %}
+    <p class="hint hint--spaced">
+      That is all {{ history.total }} entr{{ 'y' if history.total == 1 else 'ies' }} on this account.
+    </p>
+  {% endif %}
+{% endblock %}

@@ -87,12 +87,17 @@ def main() -> int:
         "(3,'other','Other','x','member',0,'Africa/Cairo',1,'2026-08-15T00:00:00Z')"
     )
     conn.execute(
-        "INSERT INTO accounts (id, name, type, currency, owner_id, is_active, "
+        "INSERT INTO accounts (id, name, type, currency, is_active, "
         "sort_order, created_at) VALUES "
-        "(1,'CIB Current','bank','EGP',NULL,1,10,'2026-08-15T00:00:00Z'),"
-        "(2,'Cash','cash','EGP',2,1,20,'2026-08-15T00:00:00Z'),"
-        "(3,'DE Giro','bank','EUR',2,1,30,'2026-08-15T00:00:00Z')"
+        "(1,'CIB Current','bank','EGP',1,10,'2026-08-15T00:00:00Z'),"
+        "(2,'Cash','cash','EGP',1,20,'2026-08-15T00:00:00Z'),"
+        "(3,'DE Giro','bank','EUR',1,30,'2026-08-15T00:00:00Z')"
     )
+    # Ownership is its own table since 006. It still carries no visibility
+    # meaning — the checks below prove exactly that.
+    conn.execute(
+        "INSERT INTO account_owners (account_id, user_id, created_at) VALUES "
+        "(2,2,'2026-08-15T00:00:00Z'), (3,2,'2026-08-15T00:00:00Z')")
     conn.commit()
 
     print("\nconstraints — money and direction")

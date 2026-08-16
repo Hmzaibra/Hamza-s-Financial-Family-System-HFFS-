@@ -58,11 +58,11 @@ def main() -> int:
         "(1,'admin','Admin',?,'admin',1,'Africa/Cairo',1,'2026-08-16T00:00:00Z'),"
         "(2,'mem','Member',?,'member',0,'Africa/Cairo',1,'2026-08-16T00:00:00Z')", (pw, pw))
     conn.execute(
-        "INSERT INTO accounts (id, name, type, currency, owner_id, is_active, sort_order, created_at) "
-        "VALUES (1,'CIB Current','bank','EGP',NULL,1,10,'t'),"
-        "       (2,'Cash','cash','EGP',NULL,1,20,'t'),"
-        "       (3,'Vodafone Cash','wallet','EGP',NULL,1,30,'t'),"
-        "       (4,'DE Giro','bank','EUR',NULL,1,40,'t')")
+        "INSERT INTO accounts (id, name, type, currency, is_active, sort_order, created_at) "
+        "VALUES (1,'CIB Current','bank','EGP',1,10,'t'),"
+        "       (2,'Cash','cash','EGP',1,20,'t'),"
+        "       (3,'Vodafone Cash','wallet','EGP',1,30,'t'),"
+        "       (4,'DE Giro','bank','EUR',1,40,'t')")
     conn.execute(
         "INSERT INTO merchants (id, name, kind, default_is_online, is_system, is_active, created_at) "
         "VALUES (60,'Seoudi','spend',0,0,1,'t'), (61,'Acme Payroll','income',0,0,1,'t')")

@@ -26,6 +26,7 @@
   var transferFields = qs("transfer-fields");
   var counterAccount = qs("counter_account_id");
   var counterField = qs("counter-amount-field");
+  var counterAmount = qs("counter_amount");
   /* One box does both jobs: it filters the list, and it *is* the new-merchant
      field the server reads when nothing matched. */
   var search = qs("merchant-search");
@@ -127,6 +128,7 @@
     }
     if (e.target.id === "currency") syncFx(true);
     if (e.target.id === "counter_account_id") syncCounter();
+    if (e.target.id === "counter_amount") counterAmount.dataset.touched = "1";
   });
 
   /* ---- currency follows the account, rate appears only when needed ---- */
@@ -185,6 +187,45 @@
     syncCounter();
   }
 
+  /* The cached rate-to-base for a currency code, or null. The numbers already
+     ride on the currency <select>'s options for the FX field; reading them back
+     off there beats a second copy of the same table in a data attribute. */
+  function rateFor(code) {
+    if (!code || !currency) return null;
+    if (code === base) return 1;
+    for (var i = 0; i < currency.options.length; i++) {
+      var opt = currency.options[i];
+      if (opt.value.toUpperCase() === code) {
+        var rate = parseFloat(opt.dataset.rate);
+        return isFinite(rate) && rate > 0 ? rate : null;
+      }
+    }
+    return null;
+  }
+
+  /* What the arriving amount would be at the cached rate — a starting point,
+     not an answer. The rate that matters is the bank's on the day, with its
+     spread and its fee, and only the person holding the statement knows it. */
+  function suggestArriving(intoCode) {
+    if (!counterAmount || !amount || !currency) return;
+    if (counterAmount.dataset.touched === "1") return;
+
+    var out = parseFloat(String(amount.value).replace(",", "."));
+    var from = rateFor(currency.value.toUpperCase());
+    var into = rateFor(intoCode);
+    if (!isFinite(out) || out <= 0 || !from || !into) return;
+
+    var arriving = (out * from) / into;
+    // Two decimals is right for every currency this form offers. money.py owns
+    // the exponent table for the ones it is not, and the server re-parses this
+    // string anyway — nothing here is ever stored as typed.
+    counterAmount.value = arriving.toFixed(2);
+  }
+
+  /* The currency the destination account is denominated in, last time we
+     looked. A change in this is what has to wipe the arriving amount. */
+  var lastIntoCode = null;
+
   function syncCounter() {
     if (!counterField || !counterAccount || !currency) return;
 
@@ -204,6 +245,19 @@
     var crossCurrency =
       currentDirection() === "transfer" && code && code !== currency.value.toUpperCase();
     counterField.hidden = !crossCurrency;
+
+    /* Point the transfer at an account in a different currency and whatever is
+       in the arriving box is now a number about the old one. Left alone it
+       silently becomes the new currency's amount — which is how 10.00 EGP once
+       arrived as 10.00 EUR, a factor of fifty-five, with nothing complaining.
+       The server refuses that now; this is why it never gets typed. */
+    if (counterAmount && code !== lastIntoCode) {
+      counterAmount.value = "";
+      counterAmount.dataset.touched = "";
+      lastIntoCode = code || null;
+    }
+
+    if (crossCurrency) suggestArriving(code);
   }
 
   /* ---- one list per side of the form ---------------------------------- */
@@ -336,6 +390,9 @@
       // Accept a comma as a decimal separator without fighting the keypad.
       var cleaned = amount.value.replace(/[^\d.,]/g, "");
       if (cleaned !== amount.value) amount.value = cleaned;
+      // A cross-currency transfer's suggested arriving amount is derived from
+      // this number, so it has to follow it as it is typed.
+      syncCounter();
     });
   }
 

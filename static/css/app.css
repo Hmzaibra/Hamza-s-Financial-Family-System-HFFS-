@@ -1029,6 +1029,17 @@ table td.num,
   color: var(--text-muted);
 }
 
+/* The -4px above is tuned for a hint sitting under a chip row, where it is
+   almost a caption. Under an oversized figure it pulls the sentence into the
+   number's descenders, so anything following a headline total gets its space
+   back explicitly. */
+.total + .hint,
+.figures + .hint,
+.total + .row--actions,
+.figures + .row--actions {
+  margin-top: 14px;
+}
+
 .hint--chips {
   margin: 6px 0 0;
 }
@@ -1470,4 +1481,138 @@ table td.num,
 
 .section__title--pad {
   padding: 14px 16px 0;
+}
+
+/* ======================================== my accounts, wheels, figure pairs
+   The read-only side of accounts: a list of what you have, one summary per
+   account, and the balance walked backwards through every entry. */
+
+/* ---- a pair of figures side by side ------------------------------------
+   Spent and came in, or spent and net. Two numbers that only mean something
+   next to each other, so they share a row rather than stacking. */
+
+.figures {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.figures__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+
+.figures__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.figures__value {
+  font-size: 1.05rem;
+  font-weight: 640;
+}
+
+/* ---- limit wheels ------------------------------------------------------
+   A ring is a circle with a dashed stroke whose first dash is the filled arc,
+   so the only thing that varies per wheel is one length. That length rides in
+   `stroke-dasharray`, an SVG presentation attribute — the CSP has no
+   `unsafe-inline`, so an inline style would silently not render (rule 8), the
+   same reason card colours are painted as `fill`. */
+
+.wheels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 18px 12px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wheel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+}
+
+.wheel__ring {
+  width: 74px;
+  height: 74px;
+  fill: none;
+}
+
+.wheel__track {
+  stroke: var(--line);
+  stroke-width: 7;
+}
+
+.wheel__fill {
+  stroke: var(--accent);
+  stroke-width: 7;
+  /* Rounded so a 2% sliver is still a visible mark rather than a hairline. */
+  stroke-linecap: round;
+}
+
+.wheel__ring--warn .wheel__fill { stroke: var(--warn); }
+.wheel__ring--over .wheel__fill { stroke: var(--over); }
+
+/* Sits in the hole rather than under the ring: the percentage is the headline
+   and the ring is the context for it, not the other way round. */
+.wheel__pct {
+  position: absolute;
+  top: 26px;
+  font-size: 0.95rem;
+  font-weight: 660;
+}
+
+.wheel__label {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.wheel__meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* Which kind of ceiling this is. Never dropped on a narrow screen: a budget
+   and a bank limit look identical here and behave completely differently, and
+   the difference is the whole point of saying it. */
+.wheel__note {
+  margin-top: 3px;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+/* ---- balance history ---------------------------------------------------
+   The marker row standing in for entries the reader may not see. Quieter than
+   a real row on purpose: it is an explanation for a step in the number, not an
+   entry in its own right. */
+
+.list__item--muted {
+  opacity: 0.72;
+}
+
+.list__item--muted .list__meta {
+  font-style: italic;
+}
+
+/* ---- checkbox groups in a form ---------------------------------------- */
+
+.fieldset {
+  border: 0;
+  margin: 0 0 16px;
+  padding: 0;
 }

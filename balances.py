@@ -183,7 +183,11 @@ def is_overdrawn(account, balance: Balance | None) -> bool:
 # everything else. Only the balances above are exempt.
 
 
-def _month_bounds(day) -> tuple[str, str]:
+def month_bounds(day) -> tuple[str, str]:
+    """[first of the month, first of the next) — half-open, so nothing is
+    counted twice. Public because `accounts.py` asks the same question about one
+    account, and a leading underscore two modules reach past is a lie about
+    where the boundary is."""
     first = day.replace(day=1)
     if first.month == 12:
         nxt = first.replace(year=first.year + 1, month=1)
@@ -200,7 +204,7 @@ def month_spend(user, day, vis_sql: str, vis_params: list) -> tuple[int, int]:
     money, which rule 1 exists to forbid — and it would silently drop the NULL
     rate on every base-currency row besides.
     """
-    start, end = _month_bounds(day)
+    start, end = month_bounds(day)
     base = base_currency()
 
     rows = query(
@@ -222,6 +226,56 @@ def month_spend(user, day, vis_sql: str, vis_params: list) -> tuple[int, int]:
     return total, unconverted
 
 
+def month_income(user, day, vis_sql: str, vis_params: list) -> tuple[int, int]:
+    """(income this month in base currency, rows that could not be converted).
+
+    The month screen used to count spending and nothing else, which is right up
+    until a household that has logged three entries — two of them income — opens
+    it and is told nothing happened this month. "No spending" and "no activity"
+    are different sentences and only one of them was true.
+    """
+    start, end = month_bounds(day)
+    base = base_currency()
+
+    rows = query(
+        f"SELECT t.amount_minor, t.currency, t.fx_rate_to_base FROM transactions t "
+        f"WHERE {vis_sql} AND t.direction = 'income' "
+        f"  AND t.occurred_on >= ? AND t.occurred_on < ?",
+        [*vis_params, start, end],
+    )
+
+    total = 0
+    unconverted = 0
+    for row in rows:
+        if row["currency"] == base:
+            total += row["amount_minor"]
+        elif row["fx_rate_to_base"]:
+            total += convert_to_base(row["amount_minor"], row["fx_rate_to_base"])
+        else:
+            unconverted += 1
+    return total, unconverted
+
+
+def month_counts(user, day, vis_sql: str, vis_params: list) -> dict:
+    """How many entries of each kind landed this month.
+
+    Purely so the screen can tell "you have logged nothing" apart from "you have
+    logged things, none of which were spending". Transfers are counted and never
+    totalled: moving your own money between your own accounts is not income and
+    not expenditure, and adding it to either would double it.
+    """
+    start, end = month_bounds(day)
+    return {
+        row["direction"]: row["n"]
+        for row in query(
+            f"SELECT t.direction, COUNT(*) AS n FROM transactions t "
+            f"WHERE {vis_sql} AND t.occurred_on >= ? AND t.occurred_on < ? "
+            f"GROUP BY t.direction",
+            [*vis_params, start, end],
+        )
+    }
+
+
 def month_by_category(user, day, vis_sql: str, vis_params: list) -> list[dict]:
     """Spending this month grouped by top-level category, largest first.
 
@@ -229,7 +283,7 @@ def month_by_category(user, day, vis_sql: str, vis_params: list) -> list[dict]:
     where the money went, and splitting it across Coffee, Restaurant and
     Delivery on a phone-sized screen buries that.
     """
-    start, end = _month_bounds(day)
+    start, end = month_bounds(day)
     base = base_currency()
 
     rows = query(

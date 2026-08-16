@@ -53,19 +53,21 @@ def main() -> int:
         "(1,'admin','Admin',?,'admin',1,'Africa/Cairo',1,'2026-08-15T00:00:00Z'),"
         "(2,'mem','Member',?,'member',0,'Africa/Cairo',1,'2026-08-15T00:00:00Z')", (pw, pw))
     conn.execute(
-        "INSERT INTO accounts (id, name, type, currency, owner_id, is_active, sort_order, created_at) "
-        "VALUES (1,'CIB Current','bank','EGP',NULL,1,10,'t'),"
-        "       (2,'Cash','cash','EGP',NULL,1,20,'t'),"
-        "       (3,'DE Giro','bank','EUR',2,1,30,'t'),"
-        "       (4,'Vodafone Cash','wallet','EGP',NULL,1,40,'t')")
+        "INSERT INTO accounts (id, name, type, currency, is_active, sort_order, created_at) "
+        "VALUES (1,'CIB Current','bank','EGP',1,10,'t'),"
+        "       (2,'Cash','cash','EGP',1,20,'t'),"
+        "       (3,'DE Giro','bank','EUR',1,30,'t'),"
+        "       (4,'Vodafone Cash','wallet','EGP',1,40,'t')")
+    conn.execute(
+        "INSERT INTO account_owners (account_id, user_id, created_at) VALUES (3,2,'t')")
     # A debit card hanging off the bank. Cash only comes out of a card, so the
     # withdrawal tests need one, and the trigger in 003 means a card cannot be
     # inserted without its network, colour and ceiling.
     conn.execute(
-        "INSERT INTO accounts (id, name, type, currency, owner_id, is_active, sort_order, "
+        "INSERT INTO accounts (id, name, type, currency, is_active, sort_order, "
         "parent_account_id, card_network, card_color, withdrawal_limit_minor, "
         "card_expires_on, created_at) "
-        "VALUES (5,'CIB Debit','debit_card','EGP',NULL,1,50,1,'Visa','#1F6F63',600000,"
+        "VALUES (5,'CIB Debit','debit_card','EGP',1,50,1,'Visa','#1F6F63',600000,"
         "'2099-12','t')")
     # A merchant with full defaults, to prove auto-fill happens without JavaScript.
     conn.execute(
@@ -412,6 +414,56 @@ def main() -> int:
               "!account.value" not in js)
         check("and the box carries the default to fall back to",
               b'data-default=' in select)
+
+    print("\ncross-currency transfers have to be able to be the same money")
+    with app.app_context(), app.test_request_context():
+        dbmod.execute(
+            "INSERT OR REPLACE INTO fx_rates (base, currency, rate_to_base, fetched_at, source) "
+            "VALUES ('EGP','EUR',55.0,'2026-08-16T00:00:00Z','test')")
+
+    user = {"id": 1, "timezone": "Africa/Cairo", "default_shared": 1, "role": "admin"}
+    move = {"direction": "transfer", "account_id": "1", "currency": "EGP",
+            "counter_account_id": "3", "occurred_on": "2026-08-16"}
+
+    with app.app_context(), app.test_request_context():
+        # The one that shipped: 10.00 EGP left a bank account and 10.00 EUR
+        # arrived in another. Both numbers valid, both currencies right, wrong
+        # by a factor of fifty-five, and nothing anywhere objected.
+        try:
+            txns.create_transaction(user, {**move, "amount": "10", "counter_amount": "10"})
+            check("10 EGP cannot arrive as 10 EUR", False)
+        except txns.EntryError as exc:
+            check("10 EGP cannot arrive as 10 EUR", True)
+            check("and the message says how far out it is, not 'invalid'",
+                  "factor" in str(exc) and exc.field == "counter_amount")
+
+        # What the same transfer actually looks like.
+        txns.create_transaction(user, {**move, "amount": "550", "counter_amount": "10"})
+        check("550 EGP arriving as 10 EUR is fine", True)
+
+        # A bank's rate is not the mid-market one — spread, fees, a bad day.
+        # The guard has to stay out of the way of every one of those.
+        txns.create_transaction(user, {**move, "amount": "550", "counter_amount": "9"})
+        check("a poor rate is still a real transfer, not an error", True)
+        txns.create_transaction(user, {**move, "amount": "550", "counter_amount": "12"})
+        check("so is a good one", True)
+
+        # Same currency both ends: nothing to compare, and the server copies the
+        # amount across rather than asking twice.
+        txns.create_transaction(user, {"direction": "transfer", "account_id": "1",
+                                       "currency": "EGP", "counter_account_id": "4",
+                                       "occurred_on": "2026-08-16", "amount": "25"})
+        landed = dbmod.query_one(
+            "SELECT counter_amount_minor FROM transactions ORDER BY id DESC LIMIT 1")
+        check("a same-currency transfer still copies the amount across",
+              landed["counter_amount_minor"] == 2500)
+
+    with app.app_context(), app.test_request_context():
+        # No cached rate means nothing to compare against, and a guard that
+        # guesses is worse than one that stays quiet.
+        dbmod.execute("DELETE FROM fx_rates")
+        txns.create_transaction(user, {**move, "amount": "10", "counter_amount": "10"})
+        check("with no cached rate it declines to judge rather than inventing one", True)
 
     print()
     if failures:

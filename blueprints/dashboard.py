@@ -24,6 +24,8 @@ def index():
     vis_sql, vis_params = visibility_sql(g.user)
 
     total, unconverted = bal.month_spend(g.user, today, vis_sql, vis_params)
+    income, income_unconverted = bal.month_income(g.user, today, vis_sql, vis_params)
+    counts = bal.month_counts(g.user, today, vis_sql, vis_params)
     by_category = bal.month_by_category(g.user, today, vis_sql, vis_params)
 
     # Shares of the month, for the bar under each row. Integer maths on the
@@ -39,7 +41,14 @@ def index():
         month_label=today.strftime("%B %Y"),
         currency=base_currency(),
         total=total,
-        unconverted=unconverted,
+        unconverted=unconverted + income_unconverted,
+        income=income,
+        # Net is only a sentence worth printing when both sides exist. On a month
+        # of pure spending it is the spend total with a minus sign, which is the
+        # same number said twice.
+        net=income - total,
+        counts=counts,
+        logged=sum(counts.values()),
         by_category=by_category,
         # Budgets read across everyone, which is the second stated exception to
         # rule 4 — limits.py's docstring is where that argument lives. What is
