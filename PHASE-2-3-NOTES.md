@@ -288,3 +288,56 @@ does move by a day at the boundary for someone in a very different zone.
 **Nothing warns when `uploads/` gets large.** The backup script tars it, and a
 household that photographs every receipt for two years will notice eventually.
 A size figure on the Setup screen would be cheap. It is not there yet.
+
+---
+
+## Two things changed after the phases landed
+
+### The account box stopped saying "Auto"
+
+The Account dropdown on the entry form opened with a blank option labelled
+`Auto`, meaning "whatever the merchant's default is, or failing that the first
+account". It was a label for a real answer the form declined to show you — and
+on the one screen where speed matters, an invisible answer is the expensive
+kind. It now names the account that will actually be used, pre-selected to the
+same one `_prepare()` would have fallen back to, and tapping a merchant switches
+it in front of you.
+
+**Category kept its Auto**, which is not an inconsistency. A transaction always
+comes out of exactly one account, so there was never a genuine blank there. "No
+category" is a real state a row is allowed to stay in.
+
+The non-obvious part was in `entry.js`. It decided "has the person chosen this
+themselves?" by checking whether the select was empty — which works only while
+an empty state exists. Removing the blank option would have made the box look
+permanently chosen and silently killed merchant defaults for the account
+altogether, with JavaScript *on*. It tracks a `touched` flag instead, set from
+the `change` event, which fires for a human and never for a script assigning
+`.value`. `verify_phase1.py` now checks that `!account.value` does not come back.
+
+One honest cost: with JavaScript off, a merchant's default account no longer
+applies, because the form always posts a real id. What you see is what is used.
+That is a worse default and a better lie-to-truth ratio — the account is on
+screen and can be changed before saving, which is more than "Auto" ever offered.
+
+The transfer form's **Into account** keeps its `—`. That one is genuinely
+undecided until you pick, and defaulting it would invent a movement of money
+between two real accounts.
+
+### Delete asks first
+
+The delete button removed the entry on the first tap. It sits directly under
+fields people edit on a phone, there is no undo on that path — the toast's Undo
+only covers the ten minutes after a save — and since Phase 2 a receipt photo
+goes with it.
+
+It is now a link to a confirmation page, built exactly like the sign-out screen
+and for the same two reasons: the CSP has no `unsafe-inline`, so a JavaScript
+`confirm()` would silently not run, and a page keeps working with scripting off.
+The page shows the amount, the merchant, the account, the date and the note — so
+the second tap is spent reading the entry rather than reading the word "sure?" —
+and says how many photos go with it.
+
+Being a link rather than a form also means the Enter key inside the fields above
+can no longer reach it at all, which the old separate-`<form>` trick only
+half-solved.

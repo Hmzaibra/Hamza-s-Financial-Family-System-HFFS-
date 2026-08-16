@@ -1293,8 +1293,9 @@ table td.num,
   width: 100%;
 }
 
-/* Destructive actions get distance and their own form, never a place beside
-   Save where a stray Enter could reach them. */
+/* Destructive actions get distance, and on the edit screen the control here is
+   a link to a confirmation page rather than a form that acts. Both of those
+   keep a stray Enter from inside the fields above out of reach of it. */
 .dangerbar {
   margin-top: 22px;
   padding-top: 18px;

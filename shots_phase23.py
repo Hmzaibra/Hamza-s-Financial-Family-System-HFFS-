@@ -159,6 +159,22 @@ try:
             page.wait_for_timeout(500)
             page.screenshot(path=OUT / f"edit-gallery-{scheme}.png", full_page=True)
 
+            # The delete question, and the details drawer with the account box.
+            page.goto(f"{BASE}/transactions")
+            page.wait_for_timeout(300)
+            page.click(".list__item")
+            page.wait_for_load_state("networkidle")
+            page.click("a.btn--danger")
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(400)
+            page.screenshot(path=OUT / f"delete-confirm-{scheme}.png")
+
+            page.goto(BASE)
+            page.wait_for_timeout(300)
+            page.click(".disclosure__summary")
+            page.wait_for_timeout(300)
+            page.screenshot(path=OUT / f"entry-details-{scheme}.png", full_page=True)
+
             page.goto(f"{BASE}/settings/limits")
             page.wait_for_timeout(400)
             page.screenshot(path=OUT / f"budgets-{scheme}.png", full_page=True)

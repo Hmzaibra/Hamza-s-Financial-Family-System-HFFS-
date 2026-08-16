@@ -36,6 +36,20 @@
 
   /* ---- merchant selection fills the rest of the form ------------------ */
 
+  /* The account box always names a real account, so "has the person chosen
+     this themselves?" can no longer be answered by looking for an empty value
+     the way it can for the category. It is tracked explicitly instead: a
+     `change` event on a <select> only fires for a human, never for a script
+     setting `.value`, so the flag below is set exactly when someone touches it.
+
+     Without this, removing the "Auto" option would have quietly killed merchant
+     defaults for the account — the box would always look chosen. */
+  var accountDefault = (account && account.dataset.default) || "";
+
+  function accountChosenByHand() {
+    return account && account.dataset.touched === "1";
+  }
+
   function applyMerchantDefaults(input) {
     if (!input) return;
     var c = input.dataset.category;
@@ -45,19 +59,25 @@
     // Only fill what the person has not already chosen — auto-fill must never
     // overwrite a deliberate selection.
     if (c && category && !category.value) category.value = c;
-    if (a && account && !account.value) { account.value = a; syncCurrency(); }
+    if (a && account && !accountChosenByHand()) { account.value = a; syncCurrency(); }
     if (o && online) online.value = o === "1" ? "1" : "0";
   }
 
   /* Undo exactly what this merchant filled in, and nothing else. Comparing the
      value before clearing is what keeps a deliberate choice from being wiped by
-     de-selecting the chip that happened to share it. */
+     de-selecting the chip that happened to share it.
+
+     The account reverts to the default the page was rendered with rather than
+     to nothing, because nothing is no longer one of the options. */
   function clearMerchantDefaults(input) {
     if (!input) return;
     var c = input.dataset.category;
     var a = input.dataset.account;
     if (c && category && category.value === c) category.value = "";
-    if (a && account && account.value === a) { account.value = ""; syncCurrency(); }
+    if (a && account && account.value === a && !accountChosenByHand()) {
+      account.value = accountDefault;
+      syncCurrency();
+    }
   }
 
   function checkedMerchant() {
@@ -99,7 +119,12 @@
       if (search) search.value = "";
     }
     if (e.target.name === "direction") syncDirection();
-    if (e.target.id === "account_id") { syncCurrency(); syncCounter(); }
+    if (e.target.id === "account_id") {
+      // A human moved it. From here on merchant defaults leave it alone.
+      account.dataset.touched = "1";
+      syncCurrency();
+      syncCounter();
+    }
     if (e.target.id === "currency") syncFx(true);
     if (e.target.id === "counter_account_id") syncCounter();
   });

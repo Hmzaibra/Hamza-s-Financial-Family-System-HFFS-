@@ -193,11 +193,14 @@
     </form>
   </section>
 
-  {# Its own form, so the delete button can never be the one the Enter key
-     reaches from inside the edit fields. #}
-  <form method="post" class="dangerbar"
-        action="{{ url_for('ledger.delete', txn_id=txn.id) }}">
-    {{ csrf_input() }}
-    <button type="submit" class="btn btn--danger">Delete this entry</button>
-  </form>
+  {# A link to a confirmation page, not a form that deletes. It sits under
+     fields people edit on a phone, there is no undo once it is done, and a
+     receipt photo goes with it — so the first tap asks and the second acts.
+     Being a link also means the Enter key inside the fields above can never
+     reach it. #}
+  <div class="dangerbar">
+    <a class="btn btn--danger" href="{{ url_for('ledger.confirm_delete', txn_id=txn.id) }}">
+      Delete this entry
+    </a>
+  </div>
 {% endblock %}

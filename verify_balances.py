@@ -335,6 +335,40 @@ def main() -> int:
         check("the header states the window, so it cannot be read as the month total",
               b"most recent" in get(""))
 
+    print("\ndeleting an entry asks first")
+    with app.test_client() as c:
+        login(c)
+        before = sql("SELECT COUNT(*) FROM transactions")[0][0]
+
+        page = c.get("/transactions").data
+        edit_page = c.get("/transactions/1/edit").data
+        check("the edit screen offers a link, not a button that deletes on the tap",
+              b'href="/transactions/1/delete"' in edit_page)
+        check("and nothing on it posts straight to delete",
+              b'action="/transactions/1/delete"' not in edit_page)
+
+        ask = c.get("/transactions/1/delete")
+        check("the link leads to a question", ask.status_code == 200)
+        check("which shows what is about to go rather than asking in the abstract",
+              b"Delete this entry?" in ask.data and b"11.00" in ask.data)
+        check("with a way out", b"Keep it" in ask.data)
+        check("asking changes nothing on its own",
+              sql("SELECT COUNT(*) FROM transactions")[0][0] == before)
+        check("it is a page, not a confirm() the CSP would refuse to run",
+              b"onclick" not in ask.data)
+
+        c.post("/transactions/1/delete", data={"_csrf": token(ask.data)})
+        check("the second tap is the one that acts",
+              sql("SELECT COUNT(*) FROM transactions")[0][0] == before - 1)
+
+        check("a question about an entry that is gone is a 404",
+              c.get("/transactions/1/delete").status_code == 404)
+
+    with app.test_client() as c:
+        login(c, "mem")
+        check("and someone else's entry cannot even be asked about",
+              c.get("/transactions/2/delete").status_code in (403, 404))
+
     print()
     if failures:
         print(f"{len(failures)} check(s) failed:")

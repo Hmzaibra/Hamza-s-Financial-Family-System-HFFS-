@@ -70,9 +70,12 @@ check what you thought to ask.
    `001`–`005`. The runner reports a changed checksum rather than re-running.
 10. **The entry form works with JavaScript off.** JS may only remove waiting.
     Anything it enforces must also be enforced server-side. This is why the
-    camera is a `<label>` wrapping a hidden file input rather than a button, and
+    camera is a `<label>` wrapping a hidden file input rather than a button,
     why a budget's scope is one `<select>` carrying `category:7` rather than a
-    kind and an id in two controls.
+    kind and an id in two controls, and why "are you sure?" is a page rather
+    than a `confirm()`. Note that `entry.js` no longer reads an empty account
+    select as "untouched" — the box always names an account, and a `touched`
+    flag carries that meaning instead.
 11. **Files on disk are never deleted without the database knowing first.**
     `ON DELETE CASCADE` does not touch the filesystem, so an `AFTER DELETE`
     trigger records the debt in `orphaned_files` and `receipts.reap()` pays it.

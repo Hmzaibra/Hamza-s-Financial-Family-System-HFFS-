@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Delete entry — Expenses{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div><h1>Delete this entry?</h1></div>
+    <p class="sub num">#{{ txn.id }}</p>
+  </div>
+
+  {# Show what is about to go, rather than asking "are you sure?" about
+     something off screen. The whole point of the extra tap is that the person
+     gets to read the entry once more before it stops existing. #}
+  <div class="card card--pad stack">
+    <p class="total">
+      <span class="total__currency">{{ txn.currency }}</span>
+      <span class="total__value num">{{ txn.amount_minor|money(txn.currency) }}</span>
+    </p>
+
+    <p class="empty__body">
+      {% if txn.direction == 'transfer' %}
+        {{ txn.account_name }} → {{ txn.counter_account_name }}
+      {% else %}
+        {{ txn.merchant_name or txn.category_name or 'Uncategorised' }} ·
+        {{ txn.account_name }}
+      {% endif %}
+      on <span class="num">{{ txn.occurred_on }}</span>{% if txn.note %} — {{ txn.note }}{% endif %}
+    </p>
+
+    {% if photos %}
+      <p class="hint">
+        {{ photos }} receipt photo{{ 's' if photos > 1 }} will be deleted with it.
+      </p>
+    {% endif %}
+
+    <p class="hint">
+      There is no undo on this screen. The Undo on the log screen only covers the
+      few minutes after saving.
+    </p>
+
+    <div class="row row--actions">
+      <a class="btn btn--quiet" href="{{ url_for('ledger.edit', txn_id=txn.id) }}">Keep it</a>
+      <form method="post" action="{{ url_for('ledger.delete', txn_id=txn.id) }}">
+        {{ csrf_input() }}
+        <button type="submit" class="btn btn--danger">Delete</button>
+      </form>
+    </div>
+  </div>
+{% endblock %}

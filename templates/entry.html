@@ -175,13 +175,23 @@
           </select>
         </div>
 
+        {# No "Auto" here, unlike the category beside it, and the difference is
+           not an inconsistency. A transaction always comes out of exactly one
+           account — there is no such thing as an uncategorised account — so
+           "Auto" was a label for a real answer the form declined to show you.
+           The box now names the account that will actually be used, and tapping
+           a merchant changes it in front of you.
+
+           Category keeps its Auto because "no category" is a real, honest state
+           that a transaction is allowed to stay in. #}
         <div class="field">
           <label class="field__label" for="account_id">Account</label>
-          <select class="input" id="account_id" name="account_id">
-            <option value="">Auto</option>
+          <select class="input" id="account_id" name="account_id"
+                  data-default="{{ default_account_id or '' }}">
             {% for a in accounts %}
               <option value="{{ a.id }}" data-currency="{{ a.currency }}"
-                      {{ selected(values.get('account_id'), a.id) }}>
+                      {% if values.get('account_id') %}{{ selected(values.get('account_id'), a.id) }}
+                      {%- elif a.id == default_account_id %}selected{% endif %}>
                 {{ a.type|account_emoji }} {{ a.name }} {{ a.currency|currency_flag }}{% if a.currency != base %} · {{ a.currency }}{% endif %}
               </option>
             {% endfor %}
@@ -189,7 +199,10 @@
         </div>
       </div>
 
-      <p class="hint">Left on <strong>Auto</strong>, these follow the merchant's defaults.</p>
+      <p class="hint">
+        Tapping a merchant fills the category and switches the account to the one
+        it usually comes out of. Change either and it stays changed.
+      </p>
 
       {# Transfer only. Hidden by JavaScript when the direction is not transfer;
          with JavaScript off it stays visible and is simply ignored. #}

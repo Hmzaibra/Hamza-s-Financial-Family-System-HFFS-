@@ -389,6 +389,30 @@ def main() -> int:
         check("and the street vendor who is neither",
               row["merchant_id"] is None and row["receiptless"] == 1)
 
+    print("\nthe account box names an account, never 'Auto'")
+    with app.test_client() as c:
+        login(c)
+        page = c.get("/").data
+        select = page.split(b'id="account_id"')[1].split(b"</select>")[0]
+        check("there is no blank option to hide the real answer behind",
+              b'value=""' not in select)
+        check("one account is selected when the page arrives", b"selected" in select)
+        check("and the form says which one it is by naming it, not by saying Auto",
+              b">Auto<" not in select)
+        check("category keeps its Auto — 'no category' is a state a row may stay in",
+              b'value=""' in page.split(b'id="category_id"')[1].split(b"</select>")[0])
+
+        # Removing the blank option is only safe because the script stopped
+        # using emptiness to mean "untouched". If it ever goes back to that,
+        # tapping a merchant silently stops switching the account.
+        js = Path("static/js/entry.js").read_text(encoding="utf-8")
+        check("the script tracks a hand-picked account explicitly",
+              "dataset.touched" in js)
+        check("rather than by looking for an empty value it can no longer see",
+              "!account.value" not in js)
+        check("and the box carries the default to fall back to",
+              b'data-default=' in select)
+
     print()
     if failures:
         print(f"{len(failures)} check(s) failed:")

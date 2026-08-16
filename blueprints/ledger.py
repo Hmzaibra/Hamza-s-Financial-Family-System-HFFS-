@@ -202,11 +202,47 @@ def save(txn_id: int):
     return redirect(url_for("ledger.index"))
 
 
+@bp.get("/transactions/<int:txn_id>/delete")
+@login_required
+def confirm_delete(txn_id: int):
+    """Ask before removing an entry.
+
+    A page rather than a JavaScript confirm(), for the same two reasons the
+    sign-out screen is one: the CSP has no `unsafe-inline`, so an onclick would
+    silently not run, and this way the question survives with scripting off.
+
+    The button used to delete on the first tap. It sat directly under a form
+    people edit on a phone, there is no undo on this path — the Undo toast only
+    covers the ten minutes after a save — and a receipt photo goes with it. One
+    deliberate second tap is cheap against a purchase you cannot get back.
+    """
+    row = _load_for_edit(txn_id)
+    return render_template(
+        "ledger/delete.html",
+        txn=query_one(
+            "SELECT t.*, m.name AS merchant_name, a.name AS account_name, "
+            "       ca.name AS counter_account_name, c.name AS category_name "
+            "  FROM transactions t "
+            "  LEFT JOIN merchants  m  ON m.id  = t.merchant_id "
+            "  LEFT JOIN accounts   a  ON a.id  = t.account_id "
+            "  LEFT JOIN accounts   ca ON ca.id = t.counter_account_id "
+            "  LEFT JOIN categories c  ON c.id  = t.category_id "
+            " WHERE t.id = ?",
+            (txn_id,),
+        ) or row,
+        photos=len(receipts.for_transaction(txn_id)),
+    )
+
+
 @bp.post("/transactions/<int:txn_id>/delete")
 @login_required
 def delete(txn_id: int):
     _load_for_edit(txn_id)
     if txns.delete_transaction(txn_id, g.user):
+        # The rows went with it by CASCADE; the files on disk are owed to us
+        # until something unlinks them. `flask sweep-uploads` is the backstop,
+        # not the mechanism.
+        receipts.reap()
         flash("Deleted.", "ok")
     else:
         flash("That entry could not be deleted.", "error")

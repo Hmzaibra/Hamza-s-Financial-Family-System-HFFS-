@@ -56,7 +56,7 @@ python verify_receipts.py   # EXIF stripping, resizing, who may see a photo, orp
 python verify_limits.py     # period maths, scopes, who is told, and how often
 ```
 
-492 checks. They build their own throwaway databases and touch nothing in
+509 checks. They build their own throwaway databases and touch nothing in
 `app.db` or `uploads/`.
 
 ## Layout
@@ -335,6 +335,18 @@ re-encoded, and written under a UUID name this app chose:
 `blueprints/receipts.py`, which loads the attachment's transaction and applies
 the section 4 rule to it. A UUID filename is not a permission model — it is
 unguessable right up until the first time someone forwards a link.
+
+### Deleting an entry asks first
+
+The delete control on the edit screen is a link to a confirmation page, not a
+button that acts. It sits under fields people edit on a phone, there is no undo
+on that path — the toast's Undo only covers the minutes after a save — and a
+receipt photo goes with the row. The page shows the amount, merchant, account
+and date, and how many photos will go too.
+
+A page rather than a JavaScript `confirm()`, for the same reasons the sign-out
+screen is one: the CSP has no `unsafe-inline`, so an inline handler silently
+would not run, and this survives with scripting off.
 
 ### A photo and "there was no receipt"
 

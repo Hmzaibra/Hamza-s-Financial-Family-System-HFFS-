@@ -70,8 +70,15 @@ def _form_context():
     spend = _merchant_side("spend")
     income = _merchant_side("income")
 
+    accounts = txns.active_accounts()
+
     return {
-        "accounts": txns.active_accounts(),
+        "accounts": accounts,
+        # The account box names a real account rather than offering "Auto", so
+        # the form has to pre-select the one the server would otherwise have
+        # fallen back to. Same ordering as `_prepare()`'s own fallback, which is
+        # what makes the shown answer and the used answer the same answer.
+        "default_account_id": accounts[0]["id"] if accounts else None,
         "categories": txns.active_categories(),
         # The chip row is the till path, and the till path is spending. Income is
         # logged rarely and deliberately, so its sources sit under the search box
