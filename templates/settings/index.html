@@ -29,6 +29,20 @@
         </span>
         <span class="badge num">{{ counts.merchants }}</span>
       </a></li>
+      <li><a class="list__item" href="{{ url_for('reference.people') }}">
+        <span class="list__main">
+          <span class="list__title">People</span>
+          <span class="list__meta">Who can sign in, and where alerts go</span>
+        </span>
+        <span class="badge num">{{ counts.people }}</span>
+      </a></li>
+      <li><a class="list__item" href="{{ url_for('reference.limits') }}">
+        <span class="list__main">
+          <span class="list__title">Budgets</span>
+          <span class="list__meta">These warn. They never stop you spending</span>
+        </span>
+        <span class="badge num">{{ counts.limits }}</span>
+      </a></li>
     </ul>
   </div>
 {% endblock %}

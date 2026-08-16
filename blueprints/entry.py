@@ -17,6 +17,7 @@ from flask import (
 )
 
 import fx
+import receipts
 import transactions as txns
 from blueprints.auth import login_required
 from db import base_currency, today_for
@@ -115,8 +116,21 @@ def form():
 @bp.post("/")
 @login_required
 def create():
+    # A photo taken at the till posts with the entry it belongs to. Attaching
+    # afterwards would mean saving, waiting for a redirect and finding the row
+    # again — a round trip in the middle of the one screen built to have none.
+    photo = request.files.get("receipt")
+    has_photo = photo is not None and bool(photo.filename)
+
+    form = request.form
+    if has_photo and form.get("receiptless"):
+        # Both were ticked. The photo wins and _prepare() must not see the flag,
+        # or it would refuse an entry that is about to be perfectly consistent.
+        form = form.copy()
+        form.pop("receiptless", None)
+
     try:
-        txn_id = txns.create_transaction(g.user, request.form)
+        txn_id = txns.create_transaction(g.user, form)
     except txns.EntryError as exc:
         # Re-render rather than redirect, so nothing typed is lost.
         ctx = _form_context()
@@ -130,6 +144,14 @@ def create():
             ),
             400,
         )
+
+    if has_photo:
+        # The entry is already saved. A photo that will not decode is worth a
+        # sentence, never worth throwing away the purchase someone just logged.
+        try:
+            receipts.store(txn_id, photo)
+        except receipts.ReceiptError as exc:
+            flash(f"Saved, but the photo did not attach — {exc}", "error")
 
     return redirect(url_for("entry.form", saved=txn_id))
 

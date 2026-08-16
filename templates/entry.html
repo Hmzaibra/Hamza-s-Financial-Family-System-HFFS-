@@ -22,7 +22,12 @@
 
 {% block content %}
 {% set direction = values.get('direction') or 'spend' %}
-<form method="post" action="{{ url_for('entry.create') }}" class="entry" id="entry-form" novalidate>
+{# multipart because of the camera button below. It costs nothing when no photo
+   is chosen — the browser sends an empty file part and request.form is
+   unchanged — and it means a receipt rides along with the entry it belongs to
+   instead of needing a second round trip after the save. #}
+<form method="post" action="{{ url_for('entry.create') }}" class="entry" id="entry-form"
+      enctype="multipart/form-data" novalidate>
   {{ csrf_input() }}
 
   {% if error %}
@@ -45,16 +50,42 @@
      The one place in the app that spends boldness. Currency mark small and set
      apart, figures oversized and tabular, chips directly beneath.
 
-     The empty .pos__aux column is the camera button's seat (spec section 6).
-     It has no width today, so Phase 2 drops the button in without reflowing
-     anything, and nothing dead ships in the meantime. #}
+     .pos__aux is the camera, which Phase 0 reserved a seat for and Phase 2
+     filled. It is a <label> wrapping a hidden file input rather than a button,
+     because that is the one construction that opens the camera with JavaScript
+     switched off — a <button> would need a click handler to reach the input. #}
   <div class="pos {% if error and error.field == 'amount' %}pos--error{% endif %}">
     <label class="pos__currency" for="amount" id="amount-currency">{{ base_symbol }}</label>
     <input class="pos__amount num" id="amount" name="amount" type="text"
            inputmode="decimal" autocomplete="off" enterkeyhint="done"
            placeholder="0.00" value="{{ values.get('amount', '') }}"
            aria-describedby="amount-currency" autofocus />
-    <div class="pos__aux"><!-- Phase 2: camera --></div>
+    <div class="pos__aux">
+      {# capture="environment" asks for the back camera directly on a phone.
+         A desktop browser ignores it and opens the file picker, which is the
+         right thing there. #}
+      <input type="file" id="receipt" name="receipt" class="visually-hidden"
+             accept="image/*" capture="environment" />
+      <label for="receipt" class="camera" id="camera-button">
+        <span class="camera__off" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2a1.5 1.5 0 0 0 1.25-.67l.8-1.2A1.5 1.5 0 0 1 10 4.5h4a1.5 1.5 0 0 1 1.25.67l.8 1.2A1.5 1.5 0 0 0 17.3 7h2.2A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5Z" />
+            <circle cx="12" cy="13" r="3.4" />
+          </svg>
+        </span>
+        {# Swapped in by entry.js once a file is chosen. Without JavaScript the
+           camera icon simply stays, which is honest: the photo is attached
+           either way and the confirmation arrives on the next screen. #}
+        <span class="camera__on" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12.5 10 17.5 19 7.5" />
+          </svg>
+        </span>
+        <span class="visually-hidden">Add a photo of the receipt</span>
+      </label>
+    </div>
   </div>
 
   {# ---- receipt, then merchant -----------------------------------------

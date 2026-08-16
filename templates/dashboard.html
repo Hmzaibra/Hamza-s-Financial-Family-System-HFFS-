@@ -70,6 +70,43 @@
       {% endif %}
     </div>
 
+    {# ---- budgets --------------------------------------------------------
+       These warn and nothing else. Nothing on this screen has ever stopped a
+       purchase being logged, and a bar past its end is information rather than
+       an error — hence a colour change and no exclamation mark.
+
+       The figures read across the whole household even for a member; which
+       budgets appear at all is what section 4 filters. limits.py argues that
+       out in its docstring. #}
+    {% if budgets %}
+      <div class="card">
+        <p class="section__title section__title--pad">Budgets</p>
+        <ul class="list">
+          {% for b in budgets %}
+            <li class="list__item list__item--static">
+              <span class="list__main">
+                <span class="list__title">{{ b.name }}</span>
+                <span class="list__meta">
+                  {{ b.scope }} · {{ b.period_label }} · {{ b.pct }}% used
+                </span>
+                <span class="sharebar" aria-hidden="true">
+                  <span class="sharebar__fill {% if b.over %}sharebar__fill--over
+                        {%- elif b.warning %} sharebar__fill--warn{% endif %}
+                        sharebar__fill--{{ (b.bar_pct // 5) * 5 }}"></span>
+                </span>
+              </span>
+              <span class="bal">
+                <span class="bal__amount num {% if b.over %}bal--over{% endif %}">
+                  {{ b.spent_minor|money(currency) }}
+                </span>
+                <span class="bal__note num">of {{ b.amount_minor|money(currency) }}</span>
+              </span>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
     <a class="btn btn--quiet btn--wide" href="{{ url_for('ledger.index') }}">
       See every entry
     </a>

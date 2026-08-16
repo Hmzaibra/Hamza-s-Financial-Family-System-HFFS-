@@ -494,6 +494,23 @@ def _prepare(user, form, exclude_id: int | None = None) -> dict:
     # not. Before migration 004 these were welded together as one merchant.
     receiptless = 1 if str(form.get("receiptless") or "0").strip() in ("1", "on", "true") else 0
 
+    # A photo and "there was no receipt" cannot both be true, and the two ways of
+    # arriving at that contradiction are not treated alike. Attaching a photo
+    # clears the flag (receipts.store() does it, and says so), because the photo
+    # is evidence and the flag was a claim. Ticking the box on an entry that
+    # already has photos is refused, because the claim cannot beat the evidence.
+    # The trigger in migration 005 is the backstop; this is the sentence.
+    if receiptless and exclude_id is not None:
+        photos = query_one(
+            "SELECT COUNT(*) AS n FROM attachments WHERE transaction_id = ?", (exclude_id,)
+        )["n"]
+        if photos:
+            raise EntryError(
+                f"This entry has {photos} receipt photo{'s' if photos > 1 else ''} attached. "
+                f"Remove {'them' if photos > 1 else 'it'} first if there really was no receipt.",
+                "receiptless",
+            )
+
     if direction == "spend":
         _check_credit_limit(account, amount_minor, currency, fx_rate, occurred_on, base,
                             exclude_id=exclude_id)

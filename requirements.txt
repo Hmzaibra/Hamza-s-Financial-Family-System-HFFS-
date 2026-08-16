@@ -4,5 +4,9 @@ Werkzeug>=3.0
 # zoneinfo has no bundled tz database on slim Linux images (Raspberry Pi OS Lite
 # included). Per-user timezones depend on this being present.
 tzdata>=2024.1
+# Receipt photos (Phase 2): resize, thumbnail, and strip the EXIF a phone camera
+# writes — which includes the GPS coordinates of wherever the photo was taken.
+# Prebuilt wheels exist for Raspberry Pi OS, so this needs no compiler.
+Pillow>=10.0
 # Phase 4 only, but pinned here so the Pi venv is built once:
 # gunicorn>=21.2

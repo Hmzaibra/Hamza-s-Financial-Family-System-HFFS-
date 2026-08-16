@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Budgets — Expenses{% endblock %}
+
+{% block content %}
+  <div class="toolbar">
+    <h1 class="toolbar__title">Budgets</h1>
+    <a class="btn btn--quiet" href="{{ url_for('reference.limit_form') }}">Add</a>
+  </div>
+
+  <p class="hint">
+    A budget warns. It never stops a purchase being logged — an app that refuses to
+    record what happened has stopped being a record. These are unrelated to the
+    limits on a card, which are ceilings the bank set and which
+    <em>do</em> block a save.
+  </p>
+
+  <div class="card">
+    {% if limits %}
+      <ul class="list">
+        {% for b in limits %}
+          <li><a class="list__item" href="{{ url_for('reference.limit_form', limit_id=b.limit.id) }}">
+            <span class="list__main">
+              <span class="list__title">{{ b.name }}</span>
+              <span class="list__meta">
+                {{ b.scope }} · {{ b.limit.period }} · warns at {{ b.limit.warn_pct }}%
+                {%- if b.unconverted %} · {{ b.unconverted }} not counted{% endif %}
+              </span>
+              <span class="sharebar" aria-hidden="true">
+                <span class="sharebar__fill {% if b.over %}sharebar__fill--over
+                      {%- elif b.warning %} sharebar__fill--warn{% endif %}
+                      sharebar__fill--{{ (b.bar_pct // 5) * 5 }}"></span>
+              </span>
+            </span>
+            <span class="bal">
+              <span class="bal__amount num {% if b.over %}bal--over{% endif %}">
+                {{ b.spent_minor|money(currency) }}
+              </span>
+              <span class="bal__note num">of {{ b.amount_minor|money(currency) }} {{ currency }}</span>
+            </span>
+          </a></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty">
+        <p class="empty__title">No budgets yet</p>
+        <p class="empty__body">
+          A budget is a name, an amount and what it is about — the household, one
+          person, one category, one account or one shop.
+        </p>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if archived %}
+    <p class="hint hint--spaced">Switched off</p>
+    <div class="card">
+      <ul class="list">
+        {% for row in archived %}
+          <li><a class="list__item" href="{{ url_for('reference.limit_form', limit_id=row.id) }}">
+            <span class="list__main">
+              <span class="list__title">{{ row.name }}</span>
+              <span class="list__meta">{{ scope_name(row) }} · {{ row.period }}</span>
+            </span>
+            <span class="badge badge--off">off</span>
+          </a></li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+{% endblock %}

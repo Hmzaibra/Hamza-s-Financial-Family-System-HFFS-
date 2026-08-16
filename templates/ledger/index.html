@@ -165,7 +165,8 @@
                     {{- t.category_name or 'Uncategorised' }}
                     · {{ t.account_name }}
                     {%- if t.is_online %} · online{% endif %}
-                    {%- if t.receiptless %} · no receipt{% endif %}
+                    {%- if photos.get(t.id) %} · {{ photos[t.id] }} photo{{ 's' if photos[t.id] > 1 }}
+                    {%- elif t.receiptless %} · no receipt{% endif %}
                     {%- if t.owner_name %} · {{ t.owner_name }}{% endif %}
                     {%- if not t.is_shared %} · private{% endif %}
                   </span>

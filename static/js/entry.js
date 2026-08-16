@@ -314,6 +314,41 @@
     });
   }
 
+  /* ---- the camera --------------------------------------------------------
+     Two jobs, both of them removals of waiting rather than of rules.
+
+     The tick replacing the camera icon is the only confirmation that a photo
+     was taken — the file input itself shows nothing on a phone. Without
+     JavaScript the icon stays as it is, and the photo still attaches: the
+     server is what reads the file, and the toast on the next screen says so.
+
+     Unticking "no receipt" mirrors what the server does anyway when both
+     arrive together. Doing it here means the contradiction never appears on
+     screen, rather than being quietly resolved after the save. */
+
+  var receipt = document.getElementById("receipt");
+  var cameraButton = document.getElementById("camera-button");
+  var receiptless = document.getElementById("receiptless");
+
+  if (receipt && cameraButton) {
+    receipt.addEventListener("change", function () {
+      var picked = receipt.files && receipt.files.length > 0;
+      cameraButton.classList.toggle("camera--has", picked);
+      if (picked && receiptless) receiptless.checked = false;
+    });
+  }
+
+  if (receiptless && receipt) {
+    receiptless.addEventListener("change", function () {
+      // The other direction. A photo already chosen is evidence; saying "no
+      // receipt" now means the photo was a mistake, so it goes.
+      if (receiptless.checked && receipt.files && receipt.files.length) {
+        receipt.value = "";
+        if (cameraButton) cameraButton.classList.remove("camera--has");
+      }
+    });
+  }
+
   var checkedNow = checkedMerchant();
   if (checkedNow) applyMerchantDefaults(checkedNow);
   syncDirection();

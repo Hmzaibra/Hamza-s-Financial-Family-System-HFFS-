@@ -2,11 +2,14 @@
 
 Self-hosted household expense log. Flask + SQLite, no build step, no CDN.
 
-**Phases 0 and 1 are complete.** The entry form, the account model, balances,
-the month breakdown, the transaction list with filters, and edit/delete are all
-built and verified. The family can log real purchases and the app answers "where
-did the money go last month". See `PHASE-1-NOTES.md` for what was decided along
-the way, and [Where this goes next](#where-this-goes-next) for Phase 2 onward.
+**Phases 0 through 3 are complete.** The entry form, the account model,
+balances, the month breakdown, the transaction list with filters, edit and
+delete, receipt photos with the EXIF stripped off them, and budgets that warn
+over Telegram are all built and verified. The family can log real purchases,
+photograph the slip, and hear about it when a budget runs out.
+
+See `PHASE-1-NOTES.md` and `PHASE-2-3-NOTES.md` for what was decided along the
+way and why, and [Where this goes next](#where-this-goes-next) for Phase 4.
 
 ## Running it
 
@@ -26,14 +29,20 @@ flask run                                                  # http://localhost:50
 On Windows the venv lives at `.venv\Scripts\` instead of `.venv/bin/`, and the
 commands are the same with `.venv/Scripts/python.exe -m flask --app app <verb>`.
 
-The four CLI verbs:
+The CLI verbs:
 
 | verb | what it does |
 |---|---|
 | `flask --app app run` | development server |
 | `flask --app app migrate` | apply outstanding migrations |
-| `flask --app app create-admin` | create a user, interactively |
+| `flask --app app create-admin` | create the first admin, interactively |
 | `flask --app app fetch-rates` | refresh cached exchange rates (from cron) |
+| `flask --app app check-limits` | warn about budgets over their mark (from cron) |
+| `flask --app app telegram-chats` | who has messaged the bot, with their chat ids |
+| `flask --app app sweep-uploads` | unlink receipt files whose rows are gone |
+
+`create-admin` is only needed once. After that, people are added in
+Setup → People, which is also where a Telegram chat id is pasted.
 
 Verify the install:
 
@@ -43,15 +52,18 @@ python verify_auth.py       # login, lockout, cookies, headers
 python verify_phase1.py     # entry form, merchant defaults, transfers, undo, CSRF
 python verify_accounts.py   # account links, cards, cash rules, limits, rates
 python verify_balances.py   # balance arithmetic, month figures, edit and delete
+python verify_receipts.py   # EXIF stripping, resizing, who may see a photo, orphans
+python verify_limits.py     # period maths, scopes, who is told, and how often
 ```
 
-They build their own throwaway databases and touch nothing in `app.db`.
+492 checks. They build their own throwaway databases and touch nothing in
+`app.db` or `uploads/`.
 
 ## Layout
 
 | path | what it is |
 |---|---|
-| `app.py` | app factory, security headers, `create-admin`, `fetch-rates` |
+| `app.py` | app factory, security headers, and the five CLI commands |
 | `config.py` | env-driven config; no hostnames, no TLS logic |
 | `db.py` | connections, per-connection pragmas, `today_for()`, `migrate` command |
 | `migrate.py` | numbered `.sql` runner (not Alembic) |
@@ -59,10 +71,13 @@ They build their own throwaway databases and touch nothing in `app.db`.
 | `visibility.py` | the section 4 rule, implemented once |
 | `csrf.py` | session-bound CSRF token, applied to every unsafe method |
 | `transactions.py` | the single validated write path, plus the entry form's queries |
-| `fx.py` | the exchange-rate cache. The only code that reaches the internet |
-| `balances.py` | balance arithmetic and the month figures. The stated exception to rule 4 |
-| `migrations/` | `001` schema, `002` seed, `003` accounts, `004` receipts + rates |
-| `blueprints/` | `auth.py`, `entry.py` (section 6), `ledger.py` (list, edit, delete), `reference.py` (setup), `dashboard.py` |
+| `fx.py` | the exchange-rate cache. One of two files that reach the internet |
+| `telegram.py` | Bot API sending. The other one, and cron-only like the first |
+| `balances.py` | balance arithmetic and the month figures. A stated exception to rule 4 |
+| `limits.py` | budgets: period maths, scope maths, and the alert sweep. The other exception |
+| `receipts.py` | the image pipeline — resize, thumbnail, strip EXIF — and orphan cleanup |
+| `migrations/` | `001` schema, `002` seed, `003` accounts, `004` receipts + rates, `005` photos + budgets |
+| `blueprints/` | `auth.py`, `entry.py` (section 6), `ledger.py` (list, edit, delete), `receipts.py` (serve, attach, remove), `reference.py` (setup), `dashboard.py` |
 | `templates/`, `static/` | Jinja, plain CSS, self-hosted Inter |
 | `scripts/backup.py` | SQLite backup API + `uploads/` tarball |
 
@@ -82,7 +97,9 @@ systemd unit.
    — local to the *user's own* timezone, via `db.today_for(user['timezone'])`.
 4. **Every transaction query goes through `visibility_sql()`.** It returns a SQL
    fragment plus params so aggregates compose it too, and fails closed with no
-   session. Account balances are the one deliberate exception (see below).
+   session. There are exactly two deliberate exceptions, account balances and
+   budget figures, and each says so in its own module docstring — a filtered
+   aggregate over the household is a *wrong* number rather than a partial one.
 5. **Parameterised SQL only.** The single f-string into a query is
    `visibility_sql()`'s own literal fragment; its params stay bound.
 6. **Every transaction write goes through `transactions._prepare()`.** Creating
@@ -92,8 +109,10 @@ systemd unit.
    would read as 1,100 against the day. The database CHECK constraints and
    triggers are the backstop, not the only guard.
 7. **Every unsafe request carries a CSRF token.** No exemption list.
-8. **Nothing is fetched from the internet during a request.** `fetch-rates` runs
-   from cron and writes to a cache; see [Exchange rates](#exchange-rates).
+8. **Nothing is fetched from the internet during a request.** Two commands
+   touch the network, `fetch-rates` and `check-limits`, and both run from cron.
+   `verify_limits.py` checks by reading the source that no blueprint imports
+   `telegram`, because that is the kind of rule that decays quietly.
 9. **No inline `style` or `on*` attributes anywhere.** The CSP has no
    `unsafe-inline` and never will, so an inline style is not "slightly wrong" —
    it silently does not render. Colours a user supplies are painted as SVG
@@ -283,29 +302,146 @@ negative balance is far more often a missing opening balance or an unlogged
 income than a purchase that should not have happened, and refusing the save
 would punish the person for the ledger being behind.
 
+## Receipts
+
+A photo taken at the till posts with the entry it belongs to — the camera sits
+in `.pos__aux`, the zero-width grid column Phase 0 reserved for it, as a `<label>`
+wrapping a hidden file input. That construction is the only one that opens the
+camera with JavaScript switched off; a `<button>` would need a click handler.
+
+Nothing arrives on disk as it was sent. Every upload is decoded by Pillow,
+re-encoded, and written under a UUID name this app chose:
+
+- **EXIF is stripped**, which is the point rather than a side effect. A phone
+  writes the GPS coordinates of wherever the photo was taken, plus the device
+  model and the capture time. A pharmacy receipt is private enough on its own;
+  the same file annotated with the pharmacy's location is a different thing, and
+  nobody — including whoever ends up with a copy of the backup — has a use for
+  it. The pixels are pasted into a blank image rather than filtered through a
+  blocklist of tags, because a blocklist is a list somebody has to keep current.
+- **Orientation is applied first.** It is the one tag that changes what you see,
+  so it is spent on the pixels before the rest is discarded. Skip that and every
+  receipt shot in portrait is stored on its side, permanently.
+- **The long edge is capped at 1600px** and a 320px thumbnail is made. A 4MB
+  camera original becomes about 300KB, which on a Pi serving a phone over
+  Tailscale is most of the experience.
+- **PNG stays PNG**, everything else becomes JPEG. A screenshot of a bank
+  transfer confirmation is a real receipt in this house, and JPEG turns its text
+  to mush. HEIC is not handled: decoding it needs a second compiled dependency,
+  Safari already converts on upload, and the error message says so in plain
+  words if it ever does not.
+
+`uploads/` sits outside `static/`, so a photo is only reachable through
+`blueprints/receipts.py`, which loads the attachment's transaction and applies
+the section 4 rule to it. A UUID filename is not a permission model — it is
+unguessable right up until the first time someone forwards a link.
+
+### A photo and "there was no receipt"
+
+They cannot both be true, and the two ways of reaching that contradiction are
+handled differently on purpose:
+
+| what happens | what the app does |
+|---|---|
+| you attach a photo to an entry marked receiptless | the flag is cleared |
+| you tick receiptless on an entry that has photos | refused, with a sentence |
+
+A photo is evidence and the flag is a claim, so the evidence wins. Migration
+`005` enforces both directions in triggers as well, and the edit screen hides
+the tick box entirely once photos exist rather than offering a control that will
+be refused the moment it is used.
+
+### Files that outlive their rows
+
+`ON DELETE CASCADE` removes the attachment row. It does not remove the JPEG.
+Unlinking from Python straight after the DELETE works until the process dies in
+between — and then the picture is on disk with nothing pointing at it, invisible
+and permanent. So an `AFTER DELETE` trigger records the debt in `orphaned_files`
+inside the same transaction that creates it, and `receipts.reap()` pays it off:
+after a delete in the request, and again from `flask sweep-uploads` for anything
+a crash left behind. A crash costs a delayed unlink, never a leak.
+
+That trigger only fires on a cascade because `db.py` sets
+`PRAGMA recursive_triggers = ON`. SQLite's foreign-key actions do not fire
+triggers otherwise — off by default, silent when absent, and the uploads folder
+would simply grow forever.
+
+## Budgets
+
+Budgets **warn and never block**. An app that refuses to record a purchase
+because the purchase was unwise has stopped being a record of what happened.
+They are unrelated to `credit_limit_local_minor`, `credit_limit_intl_minor` and
+`withdrawal_limit_minor` on `accounts` — those are ceilings a bank set, they are
+real, and `transactions.py` does refuse a save that would cross one.
+
+A budget is a name, an amount, a period, and what it is about: the household,
+one person, one category, one account or one merchant. A parent category counts
+its children, and an account counts the cards and Instapay handle that draw on
+it — the same settlement rule its balance follows. Periods are calendar months
+or ISO weeks (Monday start), so the edges are ones a phone calendar agrees with.
+
+Budgets are denominated in the base currency, enforced by a trigger, because the
+spending they are compared against is totalled in the base currency and a
+ceiling in another unit is not a comparison. If the household's base currency
+ever changes, existing budgets are *skipped* by the sweep with a line saying so
+rather than silently converted.
+
+### Who sees which budget
+
+This is the second stated exception to rule 4, and it is stated rather than
+inherited from the first. The *figures* inside a budget read across the whole
+household, filtered by nothing, exactly as balances do: a household budget
+filtered to what the reader personally may see is not a partial answer, it is a
+number that says the family has 3,000 left when it has 200.
+
+What section 4 filters is *which budgets a person sees at all*. A budget about
+one family member belongs to that member and to admin. Household, category,
+account and merchant budgets are shared facts and everyone sees them. A member
+should not learn from a progress bar that someone else is 90% through their
+personal allowance.
+
+### Telegram
+
+```bash
+flask --app app check-limits --dry-run   # decides everything, sends nothing
+flask --app app check-limits             # for cron, hourly is fine
+flask --app app telegram-chats           # who has messaged the bot, with ids
+```
+
+A cron command and never a request, for the reason invariant 8 exists: a budget
+warning is the least urgent thing in this app and must never sit between someone
+and their entry form.
+
+Two messages per budget per period at most — one at the mark you set, one when
+it is all spent — guaranteed by `limit_alerts`' UNIQUE on
+`(limit_id, period_key, threshold_pct)`, which is why the command is safe to run
+every hour. **Nothing is recorded unless a message actually left.** Recording
+first and failing to send would mean a warning permanently owed and never
+delivered; this way a flat network or a blocked bot costs a retry next run.
+
+Setting it up is three steps and the middle one is not optional: put the token
+from @BotFather in `.env`, have each person send the bot any message, then run
+`telegram-chats` and paste the numbers into Setup → People. Telegram will not
+let a bot write to someone who has never written to it. That is a spam rule.
+
 ## Where this goes next
 
-- **Phase 2 — receipts.** `attachments` is already in the schema with an
-  `ON DELETE CASCADE`; `MAX_CONTENT_LENGTH` is set; the entry form's `.pos__aux`
-  grid column is a zero-width seat for the camera button so it drops in without
-  reflow. `transactions.receiptless` is the flag that says not to expect one —
-  the two should agree, and a receiptless transaction with an attachment is a
-  contradiction worth surfacing.
-- **Phase 3 — limits and Telegram.** The `limits` and `limit_alerts` tables are
-  built and unused; `limit_alerts`' UNIQUE constraint is what stops a threshold
-  nagging twice. Note these are *budgets*, unrelated to the card limits on
-  `accounts`, which are ceilings the bank set. `users.telegram_chat_id` and
-  `TELEGRAM_BOT_TOKEN` are both already in place.
 - **Phase 4 — reporting, PWA, CSV, deployment.** `fx_rates` and the
   per-transaction captured rate are what multi-currency reporting needs.
   Deployment is gunicorn behind `tailscale serve`; set `SESSION_COOKIE_SECURE=1`
   when TLS is in front, or the session cookie is set and never sent back and
-  login silently fails.
+  login silently fails. Two cron entries come with it — `fetch-rates` daily and
+  `check-limits` hourly — plus `sweep-uploads` weekly.
 
 Left out on purpose: an **account history page**. The list's account filter
 already answers "what moved through this account", and a second screen showing
 the same rows is a second thing to keep correct. Build it when the filter stops
 being enough.
+
+Also left out: **OCR on receipt photos**. Reading a total off a till slip is a
+different project with a different failure mode — a number that is confidently
+wrong is worse than no number, and the amount is already typed before the camera
+is opened.
 
 Known rough edge to fix whenever it next annoys someone: **with JavaScript off,
 both merchant lists render at once** under their own headings. Hiding the wrong

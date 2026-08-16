@@ -13,6 +13,7 @@ from flask import (
     Blueprint, abort, flash, g, redirect, render_template, request, url_for,
 )
 
+import receipts
 import transactions as txns
 from blueprints.auth import login_required
 from db import base_currency, query, query_one, today_for
@@ -121,6 +122,9 @@ def index():
     return render_template(
         "ledger/index.html",
         days=days, count=len(rows), more=more, limit=DEFAULT_LIMIT,
+        # One query for the whole page rather than one per line. Fifty round
+        # trips to draw fifty paperclips is how a list gets slow on an SD card.
+        photos=receipts.counts_for(row["id"] for row in rows),
         filters=f, active_filters=active,
         base=base_currency(),
         today=today_for(g.user["timezone"]),
@@ -160,6 +164,7 @@ def _edit_view(row, values, error=None, status: int = 200):
             merchants=query(
                 "SELECT id, name, kind FROM merchants WHERE is_active = 1 ORDER BY name"),
             base=base_currency(),
+            attachments=receipts.for_transaction(row["id"]),
         ),
         status,
     )

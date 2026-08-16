@@ -619,8 +619,10 @@ table td.num,
 
 .pos {
   display: grid;
-  /* The third column is the camera button's seat (Phase 2). It is zero-width
-     today, so adding the button later shifts nothing else on the screen. */
+  /* The third column is the camera button's seat. Phase 0 left it at zero
+     width behind a variable so that filling it in Phase 2 would be one number
+     rather than a re-layout; this is that number. */
+  --pos-aux: 46px;
   grid-template-columns: auto 1fr var(--pos-aux, 0px);
   align-items: center;
   gap: 12px;
@@ -1309,4 +1311,162 @@ table td.num,
 .btn--danger:hover {
   background: var(--over);
   color: var(--card);
+}
+
+/* ================================================== receipts and budgets
+   Phase 2 and 3. Everything below is either the camera on the entry form,
+   the thumbnails on the edit screen, or the two extra states a budget bar
+   has that a category bar does not. */
+
+/* ---- the camera --------------------------------------------------------
+   It sits in .pos__aux, the zero-width grid column Phase 0 left for it, so
+   adding it reflows nothing on the till screen.
+
+   A <label> rather than a <button>: a label wrapping a hidden file input is
+   the one construction that opens the camera with JavaScript switched off. */
+
+.camera {
+  display: grid;
+  place-items: center;
+  width: var(--pos-aux, 46px);
+  height: var(--pos-aux, 46px);
+  border-radius: 14px;
+  /* --pos-ink and --pos-dim, not the page's ink: this sits on the dark till
+     panel in both colour schemes, so the page's text colours would be
+     invisible against it in one of them. */
+  border: 1px solid color-mix(in srgb, var(--pos-dim) 55%, transparent);
+  color: var(--pos-dim);
+  cursor: pointer;
+  transition: color 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+
+.camera:hover {
+  color: var(--pos-ink);
+  border-color: var(--pos-ink);
+}
+
+/* The file input is hidden but still focusable, so the ring has to be drawn
+   on the label that stands in for it or the control vanishes from keyboard
+   navigation entirely. */
+.pos__aux input:focus-visible + .camera {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.camera svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* One of the two glyphs is always hidden. The tick is the only confirmation
+   a photo was taken — a file input shows nothing of its own on a phone. */
+.camera__on { display: none; }
+
+.camera--has {
+  color: var(--pos-ink);
+  border-color: var(--pos-ink);
+  background: color-mix(in srgb, var(--pos-ink) 14%, transparent);
+}
+
+.camera--has .camera__off { display: none; }
+.camera--has .camera__on  { display: grid; }
+
+/* ---- the gallery on the edit screen ------------------------------------
+   Photos of receipts are wildly different shapes — a till slip is a ribbon,
+   a bank screenshot is a phone — so the tiles are a fixed square and the
+   image is cropped to fill rather than letterboxed into it. */
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+  margin: 10px 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.gallery__item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gallery__link {
+  display: block;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.gallery__img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.gallery__remove {
+  display: flex;
+}
+
+.gallery__remove .btn {
+  width: 100%;
+}
+
+.btn--small {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+}
+
+.addphoto {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+/* ---- budget bars -------------------------------------------------------
+   Same track as the category shares, two extra states. A bar past its end is
+   information, not an error: it changes colour and says nothing else. The
+   width class is capped at 100 while the printed percentage is not, because
+   "142% of August" is the fact and an overflowing track is a rendering bug. */
+
+.sharebar__fill--warn { background: var(--warn); }
+.sharebar__fill--over { background: var(--over); }
+
+/* A budget bar carries more weight than a category share — it is the point of
+   the row rather than a decoration on it — so it gets a little more air above
+   and a track you can see when the fill is short. */
+.list__main > .sharebar {
+  margin-top: 10px;
+  margin-bottom: 2px;
+}
+
+/* ---- small text under a field -----------------------------------------
+   The settings forms explain themselves in place. A sentence under the box
+   is read; the same sentence on a help screen is not. */
+
+.field__hint {
+  margin: 5px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.field__static {
+  margin: 0;
+  padding: 11px 0;
+  color: var(--text-muted);
+}
+
+.section__title {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.section__title--pad {
+  padding: 14px 16px 0;
 }

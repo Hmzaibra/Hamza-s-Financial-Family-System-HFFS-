@@ -12,5 +12,11 @@ venv/
 .pytest_cache/
 .DS_Store
 
-# Transport and scratch used by the assistant; safe to delete.
+# Design-review screenshots. Regenerate with shots.py / shots_phase23.py; they
+# are output, and a binary diff per tweak is not history worth keeping.
+shots/
+shots2/
+shots-phase23/
+
+# Scratch used to move files onto this machine. Safe to delete.
 _to_delete/

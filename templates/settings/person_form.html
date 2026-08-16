@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if person else 'Add' }} person — Expenses{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div><h1>{{ person.display_name if person else 'Add someone' }}</h1></div>
+  </div>
+
+  {% if error %}
+    <p class="flash flash--error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <form method="post" class="card card--pad"
+        action="{{ url_for('reference.person_save', user_id=person.id) if person
+                  else url_for('reference.person_save') }}">
+    {{ csrf_input() }}
+
+    <div class="field">
+      <label class="field__label" for="display_name">Name</label>
+      <input class="input" id="display_name" name="display_name" type="text" maxlength="60"
+             value="{{ values.get('display_name', '') }}" />
+      <p class="field__hint">What appears next to their entries.</p>
+    </div>
+
+    {% if person %}
+      {# Not editable. It is what login_attempts records against and what a phone's
+         password manager has already saved; renaming buys nothing and breaks both. #}
+      <div class="field">
+        <span class="field__label">Signs in as</span>
+        <p class="field__static num">{{ person.username }}</p>
+      </div>
+    {% else %}
+      <div class="field">
+        <label class="field__label" for="username">Signs in as</label>
+        <input class="input num" id="username" name="username" type="text" maxlength="32"
+               autocapitalize="none" autocorrect="off" spellcheck="false"
+               value="{{ values.get('username', '') }}" />
+        <p class="field__hint">Letters, digits, dots, dashes and underscores. Cannot be changed later.</p>
+      </div>
+    {% endif %}
+
+    <div class="grid-2">
+      <div class="field">
+        <label class="field__label" for="role">Role</label>
+        <select class="input" id="role" name="role">
+          {% for value, label in [('member','Member'), ('admin','Admin')] %}
+            <option value="{{ value }}"
+              {% if (values.get('role') or 'member') == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="field__hint">Admin sees every entry and reaches this screen.</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="timezone">Timezone</label>
+        <select class="input" id="timezone" name="timezone">
+          {% for tz in timezones %}
+            <option value="{{ tz }}" {% if values.get('timezone') == tz %}selected{% endif %}>{{ tz }}</option>
+          {% endfor %}
+        </select>
+        <p class="field__hint">Decides which calendar day a late-night purchase lands on.</p>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="password">
+        {{ 'New password' if person else 'Password' }}
+      </label>
+      <input class="input" id="password" name="password" type="password"
+             autocomplete="new-password" />
+      <p class="field__hint">
+        {% if person %}
+          Leave blank to keep the current one. At least 8 characters otherwise.
+        {% else %}
+          At least 8 characters. You hand this to them — there is no reset link.
+        {% endif %}
+      </p>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="telegram_chat_id">Telegram chat id</label>
+      <input class="input num" id="telegram_chat_id" name="telegram_chat_id" type="text"
+             inputmode="numeric" value="{{ values.get('telegram_chat_id') or '' }}" />
+      <p class="field__hint">
+        Where budget warnings go. Telegram will not let a bot message someone who has
+        never messaged it first, so: they open the bot and send anything, then
+        <span class="num">flask --app app telegram-chats</span> prints the number to paste here.
+        {% if not telegram_ready %}
+          TELEGRAM_BOT_TOKEN is not set yet, so nothing is sent either way.
+        {% endif %}
+      </p>
+    </div>
+
+    <label class="check" for="default_shared">
+      <input type="checkbox" id="default_shared" name="default_shared" value="1"
+             {% if values.get('default_shared') %}checked{% endif %} />
+      <span>New entries are visible to the household by default</span>
+    </label>
+
+    <label class="check" for="is_active">
+      <input type="checkbox" id="is_active" name="is_active" value="1"
+             {% if values.get('is_active', 1) %}checked{% endif %} />
+      <span>Can sign in</span>
+    </label>
+
+    <button type="submit" class="btn btn--primary">
+      {{ 'Save' if person else 'Add them' }}
+    </button>
+  </form>
+{% endblock %}

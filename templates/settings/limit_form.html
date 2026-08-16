@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if limit else 'New' }} budget — Expenses{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div><h1>{{ limit.name if limit else 'New budget' }}</h1></div>
+  </div>
+
+  {% if error %}
+    <p class="flash flash--error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  {# Said here as well as on the list, because this is the screen where someone
+     is deciding what a budget is for. A person who expects this to stop a
+     purchase will find out at the worst possible moment otherwise. #}
+  <p class="hint">
+    This warns. It never stops anything being logged — you get a Telegram message
+    at the mark you set, and one more when the whole budget is spent.
+  </p>
+
+  <form method="post" class="card card--pad"
+        action="{{ url_for('reference.limit_save', limit_id=limit.id) if limit
+                  else url_for('reference.limit_save') }}">
+    {{ csrf_input() }}
+
+    <div class="field">
+      <label class="field__label" for="name">Name</label>
+      <input class="input" id="name" name="name" type="text" maxlength="60"
+             value="{{ values.get('name', '') }}" placeholder="Groceries" />
+      <p class="field__hint">This is the first line of the Telegram message, so make it read like one.</p>
+    </div>
+
+    {# One control rather than a kind and an id in two. Four "which one"
+       dropdowns with three of them irrelevant is what the two-field version
+       looks like on a phone, and with JavaScript off there is no way to hide
+       the three — so the kind and the thing are picked together. #}
+    <div class="field">
+      <label class="field__label" for="scope">What it is about</label>
+      <select class="input" id="scope" name="scope">
+        <option value="household:"
+          {% if values.get('scope', 'household:') == 'household:' %}selected{% endif %}>
+          Everything the household spends
+        </option>
+        <optgroup label="One person">
+          {% for p in people %}
+            <option value="user:{{ p.id }}"
+              {% if values.get('scope') == 'user:' ~ p.id %}selected{% endif %}>{{ p.display_name }}</option>
+          {% endfor %}
+        </optgroup>
+        <optgroup label="One category">
+          {% for c in categories %}
+            <option value="category:{{ c.id }}"
+              {% if values.get('scope') == 'category:' ~ c.id %}selected{% endif %}>
+              {% if c.parent_name %}{{ c.parent_name }} › {% endif %}{{ c.name }}
+            </option>
+          {% endfor %}
+        </optgroup>
+        <optgroup label="One account">
+          {% for a in accounts %}
+            <option value="account:{{ a.id }}"
+              {% if values.get('scope') == 'account:' ~ a.id %}selected{% endif %}>{{ a.name }}</option>
+          {% endfor %}
+        </optgroup>
+        <optgroup label="One merchant">
+          {% for m in merchants %}
+            <option value="merchant:{{ m.id }}"
+              {% if values.get('scope') == 'merchant:' ~ m.id %}selected{% endif %}>{{ m.name }}</option>
+          {% endfor %}
+        </optgroup>
+      </select>
+      <p class="field__hint">
+        A parent category counts its children; an account counts the cards that draw on it.
+      </p>
+    </div>
+
+    <div class="grid-2">
+      <div class="field">
+        <label class="field__label" for="amount">Amount</label>
+        <input class="input num" id="amount" name="amount" type="text" inputmode="decimal"
+               value="{{ values.get('amount', '') }}" />
+        {# In {{ currency }} and only {{ currency }}: the month's spending is added up in
+           the base currency, and a ceiling in another one would be a comparison
+           between two different units. #}
+        <p class="field__hint">In {{ currency }}, like the month total it is measured against.</p>
+      </div>
+      <div class="field">
+        <label class="field__label" for="period">Resets</label>
+        <select class="input" id="period" name="period">
+          {% for p in periods %}
+            <option value="{{ p }}" {% if values.get('period') == p %}selected{% endif %}>
+              {{ 'Every Monday' if p == 'weekly' else 'On the 1st' }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="warn_pct">Warn at</label>
+      <input class="input num" id="warn_pct" name="warn_pct" type="number" min="1" max="100"
+             value="{{ values.get('warn_pct', 80) }}" />
+      <p class="field__hint">
+        Percent. One message here, one more when it is all spent, and never the same
+        one twice in a {{ 'week' if values.get('period') == 'weekly' else 'month' }}.
+      </p>
+    </div>
+
+    <label class="check" for="is_active">
+      <input type="checkbox" id="is_active" name="is_active" value="1"
+             {% if values.get('is_active', 1) %}checked{% endif %} />
+      <span>Watching</span>
+    </label>
+
+    <button type="submit" class="btn btn--primary">
+      {{ 'Save' if limit else 'Create budget' }}
+    </button>
+  </form>
+{% endblock %}

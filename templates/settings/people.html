@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}People — Expenses{% endblock %}
+
+{% block content %}
+  <div class="toolbar">
+    <h1 class="toolbar__title">People</h1>
+    <a class="btn btn--quiet" href="{{ url_for('reference.person_form') }}">Add</a>
+  </div>
+
+  <p class="hint">
+    There is no password reset link and no email anywhere in this app — you set a
+    password here and hand it over. Switching someone off keeps every entry they
+    ever made and takes away the sign-in.
+  </p>
+
+  {% if not telegram_ready %}
+    <p class="hint">
+      Telegram alerts are off: TELEGRAM_BOT_TOKEN is not set in <span class="num">.env</span>.
+      Budgets still track and still show on the Month screen; nothing gets sent.
+    </p>
+  {% endif %}
+
+  <div class="card">
+    <ul class="list">
+      {% for p in people %}
+        <li><a class="list__item" href="{{ url_for('reference.person_form', user_id=p.id) }}">
+          <span class="list__main">
+            <span class="list__title">{{ p.display_name }}</span>
+            <span class="list__meta">
+              {{ p.username }} · {{ p.timezone }}
+              · {{ 'shares by default' if p.default_shared else 'private by default' }}
+              · {{ p.entries }} entr{{ 'y' if p.entries == 1 else 'ies' }}
+              {%- if not p.telegram_chat_id %} · no Telegram{% endif %}
+            </span>
+          </span>
+          {% if p.role == 'admin' %}<span class="badge">admin</span>{% endif %}
+          {% if not p.is_active %}<span class="badge badge--off">off</span>{% endif %}
+        </a></li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endblock %}

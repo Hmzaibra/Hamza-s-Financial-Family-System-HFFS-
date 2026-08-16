@@ -9,6 +9,7 @@ from __future__ import annotations
 from flask import Blueprint, g, render_template
 
 import balances as bal
+import limits as budgets
 from blueprints.auth import login_required
 from db import base_currency, today_for
 from visibility import visibility_sql
@@ -40,4 +41,9 @@ def index():
         total=total,
         unconverted=unconverted,
         by_category=by_category,
+        # Budgets read across everyone, which is the second stated exception to
+        # rule 4 — limits.py's docstring is where that argument lives. What is
+        # filtered is which budgets this person may see at all, not the figures
+        # inside them.
+        budgets=budgets.dashboard_limits(g.user, today),
     )

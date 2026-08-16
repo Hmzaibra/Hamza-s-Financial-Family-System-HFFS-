@@ -1,20 +1,26 @@
-"""Accounts, categories and merchants — the reference data the entry form eats.
+"""Accounts, categories, merchants, people and budgets — everything Setup holds.
 
 Admin-only (spec section 3). Nothing here hard-deletes: accounts and categories
-carry transactions, and a merchant you stop using should disappear from the
-chips without rewriting last March's history. `is_active = 0` everywhere.
+carry transactions, a merchant you stop using should disappear from the chips
+without rewriting last March's history, and a person who leaves still owns the
+entries they made. `is_active = 0` everywhere.
 """
 
 from __future__ import annotations
 
 import re
+from zoneinfo import available_timezones
 
-from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
+from flask import (
+    Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for,
+)
+from werkzeug.security import generate_password_hash
 
 import balances as bal
+import limits as budgets
 from blueprints.auth import admin_required
-from db import execute, query, query_one, today_for, utc_now
-from money import MoneyError, parse_to_minor
+from db import base_currency, execute, query, query_one, today_for, utc_now
+from money import MoneyError, format_minor, parse_to_minor
 from transactions import deactivate_expired_cards
 
 bp = Blueprint("reference", __name__, url_prefix="/settings")
@@ -48,6 +54,24 @@ EXPIRY_RE = re.compile(r"^(20\d{2})-(0[1-9]|1[0-2])$")
 # with and without it, so the @ is normalised on rather than demanded.
 HANDLE_RE = re.compile(r"^@[A-Za-z0-9._-]{2,40}$")
 
+# What someone types to sign in. Deliberately narrow: this string ends up in
+# login_attempts, in a URL when a redirect carries it, and in a password
+# manager, and none of those want a space in it.
+USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{2,32}$")
+
+# Telegram chat ids are signed integers. A group chat's is negative, which is
+# why the minus sign is allowed rather than treated as a typo.
+TELEGRAM_CHAT_RE = re.compile(r"^-?\d{1,20}$")
+
+# The timezone picker. `available_timezones()` is six hundred entries and a
+# <select> that long on a phone is unusable; these are the ones this household
+# plausibly lives in, and the validator still accepts any IANA name for the day
+# that stops being true.
+COMMON_TIMEZONES = (
+    "Africa/Cairo", "Europe/Berlin", "Europe/London", "Europe/Amsterdam",
+    "Europe/Paris", "Asia/Dubai", "Asia/Riyadh", "America/New_York", "UTC",
+)
+
 
 def _positive_minor(raw: str, currency: str, label: str) -> tuple[int | None, str | None]:
     """Parse a required, strictly positive money field. Returns (value, error)."""
@@ -69,6 +93,8 @@ def index():
         "accounts": query_one("SELECT COUNT(*) n FROM accounts WHERE is_active = 1")["n"],
         "categories": query_one("SELECT COUNT(*) n FROM categories WHERE is_active = 1")["n"],
         "merchants": query_one("SELECT COUNT(*) n FROM merchants WHERE is_active = 1")["n"],
+        "people": query_one("SELECT COUNT(*) n FROM users WHERE is_active = 1")["n"],
+        "limits": query_one("SELECT COUNT(*) n FROM limits WHERE is_active = 1")["n"],
     }
     return render_template("settings/index.html", counts=counts)
 
@@ -574,3 +600,298 @@ def merchant_save(merchant_id: int):
 
     flash(f"Saved {name}.", "ok")
     return redirect(url_for("reference.merchants"))
+
+
+# -------------------------------------------------------------------- people
+#
+# Phase 3 needs this screen for one concrete reason: a Telegram alert goes to a
+# chat id, and until now the only way to put one on a user was sqlite3 over SSH.
+# It earns its place twice over, because `flask create-admin` was also the only
+# way this household could gain a second member.
+
+
+def _active_admins(excluding: int | None = None) -> int:
+    return query_one(
+        "SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND is_active = 1 "
+        "AND id IS NOT ?",
+        (excluding or -1,),
+    )["n"]
+
+
+@bp.get("/people")
+@admin_required
+def people():
+    rows = query(
+        "SELECT u.*, "
+        "  (SELECT COUNT(*) FROM transactions t WHERE t.user_id = u.id) AS entries "
+        "FROM users u ORDER BY u.is_active DESC, u.display_name"
+    )
+    return render_template(
+        "settings/people.html",
+        people=rows,
+        telegram_ready=bool(current_app.config["TELEGRAM_BOT_TOKEN"]),
+    )
+
+
+def _person_form_view(person, values, error=None, status: int = 200):
+    return (
+        render_template(
+            "settings/person_form.html",
+            person=person, values=values, error=error,
+            timezones=COMMON_TIMEZONES,
+            telegram_ready=bool(current_app.config["TELEGRAM_BOT_TOKEN"]),
+        ),
+        status,
+    )
+
+
+@bp.get("/people/new")
+@bp.get("/people/<int:user_id>")
+@admin_required
+def person_form(user_id: int | None = None):
+    person = None
+    if user_id is not None:
+        person = query_one("SELECT * FROM users WHERE id = ?", (user_id,))
+        if person is None:
+            abort(404)
+    values = dict(person) if person else {"timezone": current_app.config["DEFAULT_TIMEZONE"]}
+    return _person_form_view(person, values)
+
+
+@bp.post("/people/new")
+@bp.post("/people/<int:user_id>")
+@admin_required
+def person_save(user_id: int | None = None):
+    form = request.form
+    person = None
+    if user_id is not None:
+        person = query_one("SELECT * FROM users WHERE id = ?", (user_id,))
+        if person is None:
+            abort(404)
+
+    def fail(message: str):
+        return _person_form_view(person, form, message, 400)
+
+    display_name = (form.get("display_name") or "").strip()
+    if not display_name:
+        return fail("Give them a name to show on entries.")
+
+    role = (form.get("role") or "member").strip()
+    if role not in ("admin", "member"):
+        return fail("Pick admin or member.")
+
+    tz = (form.get("timezone") or "").strip()
+    if tz not in available_timezones():
+        return fail("Pick a timezone — it decides which calendar day their entries land on.")
+
+    default_shared = 1 if form.get("default_shared") else 0
+    is_active = 1 if form.get("is_active") else 0
+
+    # A chat id is a signed integer from Telegram; a group chat's is negative.
+    # Stored as text because it is an identifier, never a number to do sums with.
+    chat_id = (form.get("telegram_chat_id") or "").strip() or None
+    if chat_id and not TELEGRAM_CHAT_RE.match(chat_id):
+        return fail("A Telegram chat id is a number, like 123456789. "
+                    "Run `flask --app app telegram-chats` to find it.")
+
+    password = form.get("password") or ""
+    if password and len(password) < 8:
+        return fail("Use at least 8 characters for a password.")
+
+    # The last way back in. Demoting or switching off the only active admin
+    # locks everybody out of the settings screens permanently, and the only cure
+    # is sqlite3 on the Pi — so it is refused here rather than regretted later.
+    if person is not None and (role != "admin" or not is_active):
+        if person["role"] == "admin" and person["is_active"] and not _active_admins(person["id"]):
+            return fail(
+                f"{person['display_name']} is the only admin left. Make someone else an "
+                f"admin first, or this account is the last way into Setup.")
+
+    if person is None:
+        username = (form.get("username") or "").strip()
+        if not username:
+            return fail("Pick a username — it is what they type to sign in.")
+        if not USERNAME_RE.match(username):
+            return fail("Usernames are letters, digits, dots, dashes and underscores.")
+        if not password:
+            return fail("Set a password. There is no reset link — you hand it to them.")
+        try:
+            execute(
+                "INSERT INTO users (username, display_name, password_hash, role, "
+                "default_shared, timezone, telegram_chat_id, is_active, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (username, display_name, generate_password_hash(password), role,
+                 default_shared, tz, chat_id, is_active, utc_now()),
+            )
+        except Exception:
+            return fail(f"Someone already signs in as {username!r}.")
+        flash(f"Added {display_name}.", "ok")
+        return redirect(url_for("reference.people"))
+
+    # The username is not editable. It is what login_attempts records against and
+    # what someone has already typed into a phone's password manager; renaming it
+    # buys nothing and breaks both.
+    execute(
+        "UPDATE users SET display_name=?, role=?, default_shared=?, timezone=?, "
+        "telegram_chat_id=?, is_active=? WHERE id=?",
+        (display_name, role, default_shared, tz, chat_id, is_active, user_id),
+    )
+    if password:
+        execute("UPDATE users SET password_hash = ? WHERE id = ?",
+                (generate_password_hash(password), user_id))
+
+    flash(f"Saved {display_name}." + (" New password set." if password else ""), "ok")
+    return redirect(url_for("reference.people"))
+
+
+# ------------------------------------------------------------------- budgets
+#
+# Budgets warn, they never block. The `credit_limit_*` columns on `accounts` are
+# a different idea wearing the same English word: those are ceilings a bank set,
+# and transactions.py does refuse a save that would cross one.
+
+
+@bp.get("/limits")
+@admin_required
+def limits():
+    today = today_for(g.user["timezone"])
+    rows = query("SELECT * FROM limits ORDER BY is_active DESC, scope_type, name")
+    return render_template(
+        "settings/limits.html",
+        limits=[budgets.evaluate(row, today) for row in rows if row["is_active"]],
+        archived=[row for row in rows if not row["is_active"]],
+        scope_name=budgets.scope_name,
+        currency=base_currency(),
+    )
+
+
+def _limit_form_view(limit, values, error=None, status: int = 200):
+    return (
+        render_template(
+            "settings/limit_form.html",
+            limit=limit, values=values, error=error,
+            currency=base_currency(),
+            scopes=budgets.SCOPES,
+            periods=budgets.PERIODS,
+            people=query(
+                "SELECT id, display_name FROM users WHERE is_active = 1 ORDER BY display_name"),
+            categories=query(
+                "SELECT c.id, c.name, p.name AS parent_name FROM categories c "
+                "LEFT JOIN categories p ON p.id = c.parent_id WHERE c.is_active = 1 "
+                "ORDER BY COALESCE(p.name, c.name), c.parent_id IS NOT NULL, c.name"),
+            accounts=query(
+                "SELECT id, name FROM accounts WHERE is_active = 1 ORDER BY sort_order, name"),
+            merchants=query(
+                "SELECT id, name FROM merchants WHERE is_active = 1 ORDER BY name"),
+        ),
+        status,
+    )
+
+
+@bp.get("/limits/new")
+@bp.get("/limits/<int:limit_id>")
+@admin_required
+def limit_form(limit_id: int | None = None):
+    limit = None
+    if limit_id is not None:
+        limit = query_one("SELECT * FROM limits WHERE id = ?", (limit_id,))
+        if limit is None:
+            abort(404)
+    values = {"period": "monthly", "warn_pct": 80, "scope": "household:", "is_active": 1}
+    if limit:
+        values = dict(limit)
+        values["amount"] = format_minor(limit["amount_minor"], limit["currency"])
+        values["scope"] = f"{limit['scope_type']}:{limit['scope_id'] or ''}"
+    return _limit_form_view(limit, values)
+
+
+@bp.post("/limits/new")
+@bp.post("/limits/<int:limit_id>")
+@admin_required
+def limit_save(limit_id: int | None = None):
+    form = request.form
+    limit = None
+    if limit_id is not None:
+        limit = query_one("SELECT * FROM limits WHERE id = ?", (limit_id,))
+        if limit is None:
+            abort(404)
+
+    def fail(message: str):
+        return _limit_form_view(limit, form, message, 400)
+
+    currency = base_currency()
+
+    name = (form.get("name") or "").strip()
+    if not name:
+        return fail("Give the budget a name — it is what the Telegram message says.")
+
+    # What the budget is about arrives as one field, 'category:7', rather than a
+    # kind and an id in two. Two controls would mean four "which one" dropdowns
+    # on screen with three of them irrelevant — and with JavaScript off, no way
+    # to hide the three. One grouped <select> says the same thing in one tap and
+    # cannot be filled in inconsistently.
+    scope_type, _, scope_id = (form.get("scope") or "").strip().partition(":")
+    scope_id = scope_id or None
+    if scope_type not in budgets.SCOPES:
+        return fail("Pick what this budget is about.")
+
+    period = (form.get("period") or "").strip()
+    if period not in budgets.PERIODS:
+        return fail("Pick weekly or monthly.")
+
+    # Household is the one scope with nothing to name, and 001's CHECK pairs the
+    # two so tightly that getting it wrong is an IntegrityError rather than a
+    # sentence. Hence the branch here.
+    if scope_type == "household":
+        scope_id = None
+    else:
+        if not scope_id:
+            return fail("Say which one this budget is about.")
+        table = {"user": "users", "category": "categories",
+                 "account": "accounts", "merchant": "merchants"}[scope_type]
+        if query_one(f"SELECT 1 FROM {table} WHERE id = ?", (scope_id,)) is None:
+            return fail("That no longer exists — pick another.")
+
+    amount_minor, err = _positive_minor(form.get("amount"), currency, "Budget")
+    if err:
+        return fail(err)
+
+    try:
+        warn_pct = int(form.get("warn_pct") or 80)
+    except ValueError:
+        return fail("The warning mark is a percentage, like 80.")
+    if not 1 <= warn_pct <= 100:
+        return fail("The warning mark is between 1 and 100.")
+
+    is_active = 1 if form.get("is_active") else 0
+    fields = (name, scope_type, scope_id, period, amount_minor, currency, warn_pct, is_active)
+
+    try:
+        if limit is None:
+            execute(
+                "INSERT INTO limits (name, scope_type, scope_id, period, amount_minor, "
+                "currency, warn_pct, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                fields + (utc_now(),),
+            )
+        else:
+            execute(
+                "UPDATE limits SET name=?, scope_type=?, scope_id=?, period=?, "
+                "amount_minor=?, currency=?, warn_pct=?, is_active=? WHERE id=?",
+                fields + (limit_id,),
+            )
+            # Lowering a budget mid-month can push it past a mark it already
+            # spoke about, and the alert row would keep it quiet. Clearing this
+            # period's alerts lets the new number say its piece; older periods
+            # stay as they were, because rewriting history is not a correction.
+            execute(
+                "DELETE FROM limit_alerts WHERE limit_id = ? AND period_key = ?",
+                (limit_id, budgets.period_key(period, today_for(g.user["timezone"]))),
+            )
+    except Exception as exc:
+        text = str(exc)
+        if text.startswith("limits: "):
+            return fail(text[len("limits: "):].strip().capitalize() + ".")
+        return fail("That budget could not be saved.")
+
+    flash(f"Saved {name}.", "ok")
+    return redirect(url_for("reference.limits"))

@@ -49,6 +49,12 @@ def connect(path: str | Path) -> sqlite3.Connection:
     )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # Without this, a foreign-key CASCADE deletes the row but fires no delete
+    # trigger — so deleting a transaction would drop its attachment rows and
+    # never record the JPEGs they left on disk (migration 005). Off by default,
+    # and the failure is invisible: the app keeps working, the folder keeps
+    # growing.
+    conn.execute("PRAGMA recursive_triggers = ON")
     # WAL lets the daily limit sweep (Phase 3) read while the entry form writes.
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")

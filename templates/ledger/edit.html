@@ -124,11 +124,23 @@
              value="{{ values.get('note') or '' }}" />
     </div>
 
-    <label class="check" for="receiptless">
-      <input type="checkbox" id="receiptless" name="receiptless" value="1"
-             {% if values.get('receiptless') %}checked{% endif %} />
-      <span>No receipt for this</span>
-    </label>
+    {# Hidden rather than removed once photos exist. The box would be a control
+       that is refused the moment you use it, and a control that lies about what
+       it does is worse than one that is not there — the sentence underneath
+       says why it went. #}
+    {% if attachments %}
+      <p class="hint">
+        This entry has {{ attachments|length }} receipt photo{{ 's' if attachments|length > 1 }},
+        so it cannot be marked as having none. Remove
+        {{ 'them' if attachments|length > 1 else 'it' }} below first.
+      </p>
+    {% else %}
+      <label class="check" for="receiptless">
+        <input type="checkbox" id="receiptless" name="receiptless" value="1"
+               {% if values.get('receiptless') %}checked{% endif %} />
+        <span>No receipt for this</span>
+      </label>
+    {% endif %}
 
     <label class="check" for="is_shared">
       <input type="checkbox" id="is_shared" name="is_shared" value="1"
@@ -138,6 +150,48 @@
 
     <button type="submit" class="btn btn--primary">Save changes</button>
   </form>
+
+  {# ---- receipts ---------------------------------------------------------
+     Its own form, and its own POST, for the same reason delete has one: adding
+     a photo is not a draft edit, and it must not be lost because the fields
+     above happen to fail validation. Each photo's remove button is a separate
+     form again, so Enter inside this one can never reach it. #}
+  <section class="card card--pad">
+    <h2 class="section__title">Receipts</h2>
+
+    {% if attachments %}
+      <ul class="gallery">
+        {% for a in attachments %}
+          <li class="gallery__item">
+            <a class="gallery__link" href="{{ url_for('receipts.serve', attachment_id=a.id) }}">
+              {# Alt text says what it is, not what is in it — nobody has read
+                 the picture, and pretending otherwise helps no one. #}
+              <img class="gallery__img" loading="lazy"
+                   src="{{ url_for('receipts.thumb', attachment_id=a.id) }}"
+                   alt="Receipt photo, {{ a.created_at[:10] }}" />
+            </a>
+            <form method="post" class="gallery__remove"
+                  action="{{ url_for('receipts.delete', attachment_id=a.id) }}">
+              {{ csrf_input() }}
+              <button type="submit" class="btn btn--quiet btn--small">Remove</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="hint">No photo attached to this entry.</p>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" class="addphoto"
+          action="{{ url_for('receipts.attach', txn_id=txn.id) }}">
+      {{ csrf_input() }}
+      <div class="field">
+        <label class="field__label" for="receipt">Add a photo</label>
+        <input class="input" type="file" id="receipt" name="receipt" accept="image/*" />
+      </div>
+      <button type="submit" class="btn btn--quiet">Attach</button>
+    </form>
+  </section>
 
   {# Its own form, so the delete button can never be the one the Enter key
      reaches from inside the edit fields. #}
