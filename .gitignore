@@ -1,0 +1,13 @@
+.env
+app.db
+app.db-wal
+app.db-shm
+uploads/
+backups/
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.DS_Store

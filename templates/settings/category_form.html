@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit category' if category else 'New category' }} — Expenses{% endblock %}
+
+{% macro val(key, fallback='') %}{{ values.get(key) if values.get(key) is not none else (category[key] if category else fallback) }}{% endmacro %}
+
+{% block content %}
+  <div class="page-head">
+    <div><h1>{{ 'Edit category' if category else 'New category' }}</h1></div>
+  </div>
+
+  {% if error %}<p class="flash flash--error" role="alert">{{ error }}</p>{% endif %}
+
+  <form method="post" class="card card--pad"
+        action="{{ url_for('reference.category_save', category_id=category.id) if category else url_for('reference.category_save') }}">
+    {{ csrf_input() }}
+
+    <div class="field">
+      <label class="field__label" for="name">Name</label>
+      <input class="input" id="name" name="name" required value="{{ val('name') }}" />
+    </div>
+
+    <div class="grid-2">
+      <div class="field">
+        <label class="field__label" for="parent_id">Inside</label>
+        <select class="input" id="parent_id" name="parent_id">
+          {# Only top-level categories appear here. One level, no deeper — the
+             database enforces it with a trigger as well. #}
+          <option value="">Top level</option>
+          {% for p in parents %}
+            <option value="{{ p.id }}" {% if val('parent_id')|string == p.id|string %}selected{% endif %}>
+              {{ p.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="icon">Icon</label>
+        <input class="input" id="icon" name="icon" maxlength="8" value="{{ val('icon') }}"
+               placeholder="🛒" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="sort_order">Order in lists</label>
+      <input class="input num" id="sort_order" name="sort_order" type="number"
+             value="{{ val('sort_order', 100) }}" />
+    </div>
+
+    <label class="check" for="is_active">
+      <input type="checkbox" id="is_active" name="is_active" value="1"
+             {% if not category or category.is_active %}checked{% endif %} />
+      <span>Active — offer it on the entry form</span>
+    </label>
+
+    <button type="submit" class="btn btn--primary">Save</button>
+  </form>
+{% endblock %}

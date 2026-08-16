@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Try again — Expenses{% endblock %}
+
+{% block content %}
+  <div class="errorpage">
+    <p class="errorpage__code num">400</p>
+    <p class="empty__body">{{ message or "That request wasn't understood." }}</p>
+    <a class="btn btn--quiet" href="{{ url_for('entry.form') }}">Back to the form</a>
+  </div>
+{% endblock %}

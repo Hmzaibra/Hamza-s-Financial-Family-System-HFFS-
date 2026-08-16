@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Expenses{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <p class="eyebrow">This month</p>
+      <h1>{{ month_label }}</h1>
+    </div>
+    <p class="sub">{{ today.strftime('%a %d %b') }}</p>
+  </div>
+
+  <div class="stack">
+    <div class="card card--pad">
+      <p class="eyebrow">Spent so far</p>
+      {# Zero is honest here: the transactions table exists and is empty. The
+         figure starts being computed — through visibility_sql() — in Phase 1. #}
+      <p class="total">
+        <span class="total__currency">{{ currency }}</span>
+        <span class="total__value num">0.00</span>
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="empty">
+        <span class="empty__glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 3v18l2-1.4 2 1.4 2-1.4 2 1.4 2-1.4 2 1.4V3l-2 1.4L14 3l-2 1.4L10 3 8 4.4Z" />
+            <path d="M9.5 9h5M9.5 13h5" />
+          </svg>
+        </span>
+        <p class="empty__title">Nothing logged yet</p>
+        <p class="empty__body">
+          Once entries start coming in, this is where the month adds up.
+        </p>
+      </div>
+    </div>
+  </div>
+{% endblock %}

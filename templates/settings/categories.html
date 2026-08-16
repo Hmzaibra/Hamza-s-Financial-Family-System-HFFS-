@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Categories — Expenses{% endblock %}
+
+{% block content %}
+  <div class="toolbar">
+    <h1 class="toolbar__title">Categories</h1>
+    <a class="btn btn--quiet" href="{{ url_for('reference.category_form') }}">Add</a>
+  </div>
+
+  <div class="card">
+    <ul class="list">
+      {% for c in categories %}
+        <li><a class="list__item" href="{{ url_for('reference.category_form', category_id=c.id) }}">
+          <span class="list__main">
+            <span class="list__title">
+              {% if c.parent_name %}<span class="list__parent">{{ c.parent_name }} › </span>{% endif %}
+              {% if c.icon %}{{ c.icon }} {% endif %}{{ c.name }}
+            </span>
+            <span class="list__meta">{{ c.uses }} entr{{ 'y' if c.uses == 1 else 'ies' }}</span>
+          </span>
+          {% if not c.is_active %}<span class="badge badge--off">hidden</span>{% endif %}
+        </a></li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endblock %}

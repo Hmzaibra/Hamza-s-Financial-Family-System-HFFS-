@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Accounts — Expenses{% endblock %}
+
+{# The colour is user-supplied free text, validated against COLOR_RE before it
+   is ever stored. It is painted as an SVG fill attribute rather than an inline
+   style because the CSP has no 'unsafe-inline' and never will. #}
+{% macro swatch(a) %}
+  {% if a.card_color %}
+    <svg class="swatch" viewBox="0 0 12 12" aria-hidden="true">
+      <rect width="12" height="12" rx="3" fill="{{ a.card_color }}" />
+    </svg>
+  {% endif %}
+{% endmacro %}
+
+{# The emoji are scanning aids, never the only signal — the type and currency
+   are always spelled out beside them, because a system with no emoji font (or
+   no flag font, which is most desktops) shows boxes or bare letters. #}
+{% macro title(a) %}
+  <span class="list__title">
+    <span class="acct-emoji" aria-hidden="true">{{ a.type|account_emoji }}</span>{{ swatch(a) }}{{ a.name }}<span
+      class="acct-flag" aria-hidden="true">{{ a.currency|currency_flag }}</span>
+  </span>
+{% endmacro %}
+
+{% macro meta(a) %}
+  <span class="list__meta">
+    {{ a.type|replace('_', ' ') }} · {{ a.currency }}
+    · {% if a.owner_name %}{{ a.owner_name }}{% else %}shared{% endif %}
+    {%- if a.card_network %} · {{ a.card_network }}{% endif %}
+    {%- if a.card_expires_on %} · expires {{ a.card_expires_on }}{% endif %}
+  </span>
+{% endmacro %}
+
+{% block content %}
+  <div class="toolbar">
+    <h1 class="toolbar__title">Accounts</h1>
+    <a class="btn btn--quiet" href="{{ url_for('reference.account_form') }}">Add</a>
+  </div>
+
+  <div class="card">
+    {% if accounts %}
+      <ul class="list">
+        {% for a in accounts %}
+          <li>
+            <a class="list__item" href="{{ url_for('reference.account_form', account_id=a.id) }}">
+              <span class="list__main">
+                {{ title(a) }}
+                {{ meta(a) }}
+              </span>
+              {% if not a.is_active %}<span class="badge badge--off">archived</span>{% endif %}
+            </a>
+
+            {# Linked cards and handles live under the account they draw on. #}
+            {% for child in children.get(a.id, []) %}
+              <a class="list__item list__item--child"
+                 href="{{ url_for('reference.account_form', account_id=child.id) }}">
+                <span class="list__main">
+                  {{ title(child) }}
+                  {{ meta(child) }}
+                </span>
+                {% if not child.is_active %}<span class="badge badge--off">archived</span>{% endif %}
+              </a>
+            {% endfor %}
+
+            {# Only a bank or a wallet can hold links, so only a bank or a wallet
+               gets the buttons. A credit card is its own thing and cash is
+               linked to nothing at all. #}
+            {% if a.type in parent_types and a.is_active %}
+              {% set has_instapay = children.get(a.id, []) | selectattr('type', 'equalto', 'instapay') | list %}
+              <div class="linkbar">
+                <a class="chip chip--add"
+                   href="{{ url_for('reference.account_form', type='debit_card', parent=a.id) }}">
+                  + Debit card
+                </a>
+                {% if not has_instapay %}
+                  <a class="chip chip--add"
+                     href="{{ url_for('reference.account_form', type='instapay', parent=a.id) }}">
+                    + Instapay
+                  </a>
+                {% endif %}
+              </div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty">
+        <p class="empty__title">No accounts yet</p>
+        <p class="empty__body">The entry form needs at least one place to spend from.</p>
+        <a class="btn btn--quiet" href="{{ url_for('reference.account_form') }}">Add the first one</a>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

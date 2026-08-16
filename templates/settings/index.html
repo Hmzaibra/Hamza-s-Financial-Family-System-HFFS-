@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Setup — Expenses{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div><h1>Setup</h1></div>
+  </div>
+
+  <div class="card">
+    <ul class="list">
+      <li><a class="list__item" href="{{ url_for('reference.accounts') }}">
+        <span class="list__main">
+          <span class="list__title">Accounts</span>
+          <span class="list__meta">Where money comes from and goes</span>
+        </span>
+        <span class="badge num">{{ counts.accounts }}</span>
+      </a></li>
+      <li><a class="list__item" href="{{ url_for('reference.categories') }}">
+        <span class="list__main">
+          <span class="list__title">Categories</span>
+          <span class="list__meta">One level of nesting</span>
+        </span>
+        <span class="badge num">{{ counts.categories }}</span>
+      </a></li>
+      <li><a class="list__item" href="{{ url_for('reference.merchants') }}">
+        <span class="list__main">
+          <span class="list__title">Merchants</span>
+          <span class="list__meta">Defaults here are what make entry fast</span>
+        </span>
+        <span class="badge num">{{ counts.merchants }}</span>
+      </a></li>
+    </ul>
+  </div>
+{% endblock %}

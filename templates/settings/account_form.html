@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit account' if account else 'New account' }} — Expenses{% endblock %}
+{% block head_scripts %}
+  <script src="{{ url_for('static', filename='js/account-form.js') }}" defer></script>
+{% endblock %}
+
+{% macro val(key, fallback='') %}{{ values.get(key) if values.get(key) is not none else (account[key] if account else fallback) }}{% endmacro %}
+
+{# Money comes back out of the database in minor units, so it goes through the
+   money filter to become typeable text again. Never template arithmetic: the
+   currency decides the exponent and `/ 100` here would be a float bug. #}
+{% macro money_val(field, column) %}
+  {%- if values.get(field) is not none -%}{{ values.get(field) }}
+  {%- elif account and account[column] is not none -%}{{ account[column]|money(account.currency) }}
+  {%- endif -%}
+{% endmacro %}
+
+{% set current_type = (values.get('type') if values.get('type') else (account['type'] if account else 'bank')) %}
+
+{% block content %}
+  <div class="page-head">
+    <div><h1>{{ 'Edit account' if account else 'New account' }}</h1></div>
+  </div>
+
+  {% if error %}<p class="flash flash--error" role="alert">{{ error }}</p>{% endif %}
+
+  <form method="post" class="card card--pad" id="account-form"
+        action="{{ url_for('reference.account_save', account_id=account.id) if account else url_for('reference.account_save') }}">
+    {{ csrf_input() }}
+
+    <div class="field">
+      <label class="field__label" for="name">Name</label>
+      {# For Instapay the stored name is "Sam - @sam_pay". The handle
+         is kept in its own column so this box can show just the person again. #}
+      <input class="input" id="name" name="name" required
+             value="{% if values.get('name') is not none %}{{ values.get('name') }}{% elif account and account['instapay_handle'] %}{{ account['name']|replace(' - ' ~ account['instapay_handle'], '') }}{% elif account %}{{ account['name'] }}{% endif %}"
+             placeholder="CIB Current" />
+    </div>
+
+    <div class="field" data-when-type="instapay">
+      <label class="field__label" for="instapay_handle">Instapay handle</label>
+      <input class="input" id="instapay_handle" name="instapay_handle" autocomplete="off"
+             placeholder="@sam_pay"
+             value="{{ val('instapay_handle') }}" />
+      <span class="list__meta">
+        Saved together as one name — “Sam - @sam_pay” — since neither half
+        identifies the account on its own.
+      </span>
+    </div>
+
+    <div class="grid-2">
+      <div class="field">
+        <label class="field__label" for="type">Type</label>
+        <select class="input" id="type" name="type">
+          {% for t in types %}
+            <option value="{{ t }}" {% if current_type == t %}selected{% endif %}>
+              {{ t|replace('_', ' ')|title }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="currency">Currency</label>
+        <select class="input" id="currency" name="currency">
+          {% for c in currencies %}
+            <option value="{{ c }}" {% if (val('currency') or 'EGP') == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {# ---- the link ---------------------------------------------------------
+       A debit card or an Instapay handle is a way of reaching an account, not a
+       second one. Only banks and wallets appear here; a credit card is its own
+       thing and cash is linked to nothing. #}
+    <div class="field" data-when-type="instapay debit_card">
+      <label class="field__label" for="parent_account_id">Draws on</label>
+      <select class="input" id="parent_account_id" name="parent_account_id">
+        <option value="">—</option>
+        {% for p in parents %}
+          <option value="{{ p.id }}" data-currency="{{ p.currency }}"
+                  data-owner="{{ p.owner_id or '' }}"
+                  {% if val('parent_account_id')|string == p.id|string %}selected{% endif %}>
+            {{ p.type|account_emoji }} {{ p.name }} · {{ p.type|replace('_', ' ') }}
+          </option>
+        {% endfor %}
+      </select>
+      <span class="list__meta">
+        Same money, reached a different way — it takes the linked account's currency,
+        and one Instapay handle per account (debit cards can be as many as you like).
+      </span>
+    </div>
+
+    <div class="grid-2">
+      <div class="field">
+        <label class="field__label" for="owner_id">Belongs to</label>
+        <select class="input" id="owner_id" name="owner_id">
+          {# NULL owner means household. It affects display and filtering only —
+             who can see a transaction follows the transaction's owner. #}
+          <option value="">Household (shared)</option>
+          {% for u in users %}
+            <option value="{{ u.id }}" {% if val('owner_id')|string == u.id|string %}selected{% endif %}>
+              {{ u.display_name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="sort_order">Order in lists</label>
+        <input class="input num" id="sort_order" name="sort_order" type="number"
+               value="{{ val('sort_order', 100) }}" />
+      </div>
+    </div>
+
+    {# ---- card details -----------------------------------------------------
+       Required for both card types: it is what tells two black Visas apart in a
+       list, and the withdrawal ceiling is what bounds a cash withdrawal. #}
+    <div data-when-type="credit_card debit_card">
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="card_network">Network</label>
+          <select class="input" id="card_network" name="card_network">
+            {% for n in networks %}
+              <option value="{{ n }}" {% if val('card_network') == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label class="field__label" for="card_color">Colour</label>
+          <input class="input" id="card_color" name="card_color" autocomplete="off"
+                 placeholder="#1F6F63 or teal" value="{{ val('card_color') }}" />
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="card_expires_on">Expires</label>
+          {# type=month posts 'YYYY-MM' natively and falls back to a text box on
+             browsers without it, which is why the server checks the shape. #}
+          <input class="input num" id="card_expires_on" name="card_expires_on" type="month"
+                 placeholder="2029-07" value="{{ val('card_expires_on') }}" />
+          <span class="list__meta">Good through the end of that month, then switched off.</span>
+        </div>
+        <div class="field">
+          <label class="field__label" for="withdrawal_limit">Daily cash withdrawal limit</label>
+          <input class="input num" id="withdrawal_limit" name="withdrawal_limit" type="text"
+                 inputmode="decimal" placeholder="0.00"
+                 value="{{ money_val('withdrawal_limit', 'withdrawal_limit_minor') }}" />
+          <span class="list__meta">Across the whole day, not per withdrawal.</span>
+        </div>
+      </div>
+    </div>
+
+    {# ---- credit limits ----------------------------------------------------
+       Two numbers, not one with a multiplier: in Egypt the international limit
+       is routinely lower than the local one, and the tick is the shortcut for
+       the banks where it is not. #}
+    <div data-when-type="credit_card">
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="credit_limit_local">Monthly local limit</label>
+          <input class="input num" id="credit_limit_local" name="credit_limit_local" type="text"
+                 inputmode="decimal" placeholder="0.00"
+                 value="{{ money_val('credit_limit_local', 'credit_limit_local_minor') }}" />
+        </div>
+        <div class="field" id="intl-limit-field">
+          <label class="field__label" for="credit_limit_intl">Monthly international limit</label>
+          <input class="input num" id="credit_limit_intl" name="credit_limit_intl" type="text"
+                 inputmode="decimal" placeholder="0.00"
+                 value="{{ money_val('credit_limit_intl', 'credit_limit_intl_minor') }}" />
+        </div>
+      </div>
+
+      <label class="check" for="same_limits">
+        <input type="checkbox" id="same_limits" name="same_limits" value="1"
+               {% if values.get('same_limits')
+                     or (not values and account and account['credit_limit_local_minor']
+                         and account['credit_limit_local_minor'] == account['credit_limit_intl_minor']) %}checked{% endif %} />
+        <span>Both limits are the same</span>
+      </label>
+    </div>
+
+    <div class="field" data-when-type="bank wallet cash credit_card debit_card">
+      <label class="field__label" for="opening_balance">Opening balance</label>
+      <input class="input num" id="opening_balance" name="opening_balance" type="text"
+             inputmode="decimal" placeholder="0.00"
+             value="{% if values.get('opening_balance') is not none %}{{ values.get('opening_balance') }}{% elif account and account.opening_balance_minor %}{{ account.opening_balance_minor|money(account.currency) }}{% endif %}" />
+      <span class="list__meta">
+        Positive only. A credit card is the one exception — it may open in debt with a
+        leading minus.
+      </span>
+    </div>
+
+    <label class="check" for="is_active">
+      <input type="checkbox" id="is_active" name="is_active" value="1"
+             {% if not account or account.is_active %}checked{% endif %} />
+      <span>Active — show in the entry form</span>
+    </label>
+
+    <button type="submit" class="btn btn--primary">Save</button>
+  </form>
+{% endblock %}

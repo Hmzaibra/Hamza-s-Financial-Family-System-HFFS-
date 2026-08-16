@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ merchant.name }} — Expenses{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div><h1>{{ merchant.name }}</h1></div>
+  </div>
+
+  <p class="hint">
+    These defaults are what buy back the seconds — picking this merchant on the
+    entry form fills the rest in.
+  </p>
+
+  <form method="post" class="card card--pad"
+        action="{{ url_for('reference.merchant_save', merchant_id=merchant.id) }}">
+    {{ csrf_input() }}
+
+    <div class="field">
+      <label class="field__label" for="name">Name</label>
+      <input class="input" id="name" name="name" required value="{{ merchant.name }}" />
+    </div>
+
+    {# Spending and income keep separate lists, so this is what decides which
+       side of the entry form the merchant is offered on. #}
+    <div class="field">
+      <label class="field__label" for="kind">Appears under</label>
+      <select class="input" id="kind" name="kind">
+        <option value="spend" {% if merchant.kind != 'income' %}selected{% endif %}>
+          Spending — somewhere you pay
+        </option>
+        <option value="income" {% if merchant.kind == 'income' %}selected{% endif %}>
+          Income — someone who pays you
+        </option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="default_category_id">Default category</label>
+      <select class="input" id="default_category_id" name="default_category_id">
+        <option value="">None</option>
+        {% for c in categories %}
+          <option value="{{ c.id }}"
+                  {% if merchant.default_category_id == c.id %}selected{% endif %}>
+            {% if c.parent_name %}{{ c.parent_name }} › {% endif %}{{ c.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="default_account_id">Default account</label>
+      <select class="input" id="default_account_id" name="default_account_id">
+        <option value="">None</option>
+        {% for a in accounts %}
+          <option value="{{ a.id }}"
+                  {% if merchant.default_account_id == a.id %}selected{% endif %}>{{ a.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="notes">Notes</label>
+      <input class="input" id="notes" name="notes" value="{{ merchant.notes or '' }}" />
+    </div>
+
+    <label class="check" for="default_is_online">
+      <input type="checkbox" id="default_is_online" name="default_is_online" value="1"
+             {% if merchant.default_is_online %}checked{% endif %} />
+      <span>Usually an online purchase</span>
+    </label>
+
+    <label class="check" for="is_active">
+      <input type="checkbox" id="is_active" name="is_active" value="1"
+             {% if merchant.is_active %}checked{% endif %} />
+      <span>Active — offer it on the entry form</span>
+    </label>
+
+    <button type="submit" class="btn btn--primary">Save</button>
+  </form>
+{% endblock %}

@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}Log — Expenses{% endblock %}
+{% block head_scripts %}
+  <script src="{{ url_for('static', filename='js/entry.js') }}" defer></script>
+{% endblock %}
+
+{% macro selected(a, b) %}{% if a is not none and b is not none and a|string == b|string %}selected{% endif %}{% endmacro %}
+
+{# One chip. `kind` rides along on both halves so the script can filter the row
+   by direction without re-rendering, and so the label can be hidden on its own
+   without a wrapper element breaking the flex row. #}
+{% macro chip(m, kind, direction, pinned=false) %}
+  <input type="radio" name="merchant_id" id="m-{{ m.id }}" value="{{ m.id }}"
+         class="chip__input" data-kind="{{ kind }}"
+         data-category="{{ m.default_category_id or '' }}"
+         data-account="{{ m.default_account_id or '' }}"
+         data-online="{{ m.default_is_online }}"
+         {% if values.get('merchant_id')|string == m.id|string %}checked{% endif %} />
+  <label for="m-{{ m.id }}" class="chip" data-kind="{{ kind }}" data-name="{{ m.name|lower }}"
+         {% if pinned and kind != 'both' and kind != direction %}hidden{% endif %}>{{ m.name }}</label>
+{% endmacro %}
+
+{% block content %}
+{% set direction = values.get('direction') or 'spend' %}
+<form method="post" action="{{ url_for('entry.create') }}" class="entry" id="entry-form" novalidate>
+  {{ csrf_input() }}
+
+  {% if error %}
+    <p class="flash flash--error" role="alert">{{ error.message }}</p>
+  {% endif %}
+
+  {# ---- direction ------------------------------------------------------
+     Spend is the ten-second path and is selected by default. Income and
+     transfer live here rather than on their own screens because they are the
+     same nine columns, but they never cost the spend path a tap. #}
+  <div class="segmented" role="radiogroup" aria-label="Type">
+    {% for value, label in [('spend','Spend'), ('income','Income'), ('transfer','Transfer')] %}
+      <input type="radio" name="direction" id="dir-{{ value }}" value="{{ value }}"
+             {% if (values.get('direction') or 'spend') == value %}checked{% endif %} />
+      <label for="dir-{{ value }}">{{ label }}</label>
+    {% endfor %}
+  </div>
+
+  {# ---- the point-of-sale display --------------------------------------
+     The one place in the app that spends boldness. Currency mark small and set
+     apart, figures oversized and tabular, chips directly beneath.
+
+     The empty .pos__aux column is the camera button's seat (spec section 6).
+     It has no width today, so Phase 2 drops the button in without reflowing
+     anything, and nothing dead ships in the meantime. #}
+  <div class="pos {% if error and error.field == 'amount' %}pos--error{% endif %}">
+    <label class="pos__currency" for="amount" id="amount-currency">{{ base_symbol }}</label>
+    <input class="pos__amount num" id="amount" name="amount" type="text"
+           inputmode="decimal" autocomplete="off" enterkeyhint="done"
+           placeholder="0.00" value="{{ values.get('amount', '') }}"
+           aria-describedby="amount-currency" autofocus />
+    <div class="pos__aux"><!-- Phase 2: camera --></div>
+  </div>
+
+  {# ---- receipt, then merchant -----------------------------------------
+     Two independent facts, side by side rather than welded into one chip.
+     Whether a receipt exists says nothing about who was paid: a nameless stall
+     may print one, a named shop may not, and either can be true on its own.
+
+     The receipt toggle survives a transfer — a cash withdrawal has a slip —
+     while the merchant radiogroup does not, because a transfer moves money
+     between two of your own accounts and has no counterparty to name. #}
+  <div class="chiprow">
+    <input type="checkbox" name="receiptless" id="receiptless" value="1" class="chip__input"
+           {% if values.get('receiptless') %}checked{% endif %} />
+    <label for="receiptless" class="chip chip--receipt">
+      {# Inline SVG rather than an emoji: the emoji renders in a fallback font
+         whose colour fights the palette, and this inherits currentColor. #}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 3v18l2-1.4 2 1.4 2-1.4 2 1.4 2-1.4 2 1.4V3l-2 1.4L14 3l-2 1.4L10 3 8 4.4Z" />
+        <path d="M9.5 9h5M9.5 13h5" />
+      </svg>
+      No receipt
+    </label>
+
+    <div class="chips" role="radiogroup" aria-label="Merchant" data-merchant-block
+         {% if direction == 'transfer' %}hidden{% endif %}>
+      {# Pinned so a selection is always one tap from being undone, and checked
+         by default: most entries name nobody, and that is a fact rather than a
+         gap. A radio group cannot be emptied by clicking, so it needs somewhere
+         empty to point at. #}
+      <input type="radio" name="merchant_id" id="m-none" value="" class="chip__input"
+             data-kind="both" data-category="" data-account="" data-online=""
+             {% if not values.get('merchant_id') %}checked{% endif %} />
+      <label for="m-none" class="chip chip--none" data-kind="both" data-name="">No merchant</label>
+
+      {% for m in pinned %}{{ chip(m, 'spend', direction, pinned=true) }}{% endfor %}
+    </div>
+  </div>
+
+  <p class="hint hint--chips" data-merchant-block
+     {% if direction == 'transfer' %}hidden{% endif %}>
+    Tap a selected chip again to clear it.
+  </p>
+
+  {# ---- everything else, out of the way -------------------------------- #}
+  <details class="disclosure" id="more" {% if error and error.field not in ('amount','merchant') %}open{% endif %}>
+    <summary class="disclosure__summary">
+      <span>Merchant list, category, account, date</span>
+    </summary>
+
+    <div class="disclosure__body">
+      {# One box, not two. What you type filters the list; if nothing matches,
+         the same text is the new merchant's name. It carries the form field
+         itself (`new_merchant_name`), so with JavaScript off typing a name and
+         pressing Save creates it server-side — the Add button below only saves
+         the round trip. #}
+      <div class="field" data-merchant-block {% if direction == 'transfer' %}hidden{% endif %}>
+        <label class="field__label" for="merchant-search">
+          <span data-kind-label="spend">Find or add a merchant</span>
+          <span data-kind-label="income" {% if direction != 'income' %}hidden{% endif %}>Find or add an income source</span>
+        </label>
+        <div class="row">
+          <input class="input" id="merchant-search" type="search" name="new_merchant_name"
+                 autocomplete="off" placeholder="Start typing…" aria-controls="merchant-list"
+                 value="{{ values.get('new_merchant_name', '') }}" />
+          <button type="button" class="btn btn--quiet" id="merchant-add" hidden>Add</button>
+        </div>
+
+        {# Income sources live here in full rather than in the chip row above:
+           the row above is the till path, and income is not it. #}
+        <div class="chips chips--wrap" id="merchant-list" role="radiogroup" aria-label="All merchants">
+          {% for m in spend_listed %}{{ chip(m, 'spend', direction) }}{% endfor %}
+          {% for m in income_listed %}{{ chip(m, 'income', direction) }}{% endfor %}
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="category_id">Category</label>
+          <select class="input" id="category_id" name="category_id">
+            <option value="">Auto</option>
+            {% for c in categories %}
+              <option value="{{ c.id }}" {{ selected(values.get('category_id'), c.id) }}>
+                {% if c.parent_name %}{{ c.parent_name }} › {% endif %}{{ c.name }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="account_id">Account</label>
+          <select class="input" id="account_id" name="account_id">
+            <option value="">Auto</option>
+            {% for a in accounts %}
+              <option value="{{ a.id }}" data-currency="{{ a.currency }}"
+                      {{ selected(values.get('account_id'), a.id) }}>
+                {{ a.type|account_emoji }} {{ a.name }} {{ a.currency|currency_flag }}{% if a.currency != base %} · {{ a.currency }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <p class="hint">Left on <strong>Auto</strong>, these follow the merchant's defaults.</p>
+
+      {# Transfer only. Hidden by JavaScript when the direction is not transfer;
+         with JavaScript off it stays visible and is simply ignored. #}
+      <div class="grid-2" id="transfer-fields">
+        <div class="field">
+          <label class="field__label" for="counter_account_id">Into account</label>
+          <select class="input" id="counter_account_id" name="counter_account_id">
+            <option value="">—</option>
+            {% for a in accounts %}
+              <option value="{{ a.id }}" data-currency="{{ a.currency }}"
+                      {{ selected(values.get('counter_account_id'), a.id) }}>
+                {{ a.type|account_emoji }} {{ a.name }} {{ a.currency|currency_flag }}{% if a.currency != base %} · {{ a.currency }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field" id="counter-amount-field">
+          <label class="field__label" for="counter_amount">Amount that arrived</label>
+          <input class="input num" id="counter_amount" name="counter_amount" type="text"
+                 inputmode="decimal" placeholder="0.00"
+                 value="{{ values.get('counter_amount', '') }}" />
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="occurred_on">Date</label>
+          <input class="input num" id="occurred_on" name="occurred_on" type="date"
+                 value="{{ values.get('occurred_on') or today }}" />
+        </div>
+        <div class="field">
+          <label class="field__label" for="is_online">Where</label>
+          <select class="input" id="is_online" name="is_online">
+            <option value="0" {{ selected(values.get('is_online'), 0) }}>In person</option>
+            <option value="1" {{ selected(values.get('is_online'), 1) }}>Online</option>
+          </select>
+        </div>
+      </div>
+
+      {% set chosen_currency = values.get('currency') or base %}
+      {% set cached_rate = fx_rates.get(chosen_currency) %}
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="currency">Currency</label>
+          <select class="input" id="currency" name="currency">
+            {# data-rate carries the cached rate so switching currency fills the
+               box without a round trip. The value is a default, never a record:
+               what gets stored is whatever is in the box when Save is pressed. #}
+            {% for code in ['EGP','EUR','USD','GBP','AED','SAR'] %}
+              <option value="{{ code }}"
+                      data-rate="{{ fx_rates[code].rate if code in fx_rates else '' }}"
+                      data-rate-age="{{ fx_rates[code].age_days if code in fx_rates else '' }}"
+                      {% if chosen_currency == code %}selected{% endif %}>{{ code }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field" id="fx-field">
+          <label class="field__label" for="fx_rate_to_base">Rate today → {{ base }}</label>
+          <input class="input num" id="fx_rate_to_base" name="fx_rate_to_base" type="text"
+                 inputmode="decimal" placeholder="e.g. 54.20"
+                 value="{{ values.get('fx_rate_to_base') or (cached_rate.rate if cached_rate else '') }}" />
+        </div>
+      </div>
+
+      {# Pre-filled server-side as well as in script, so the no-JavaScript path
+         gets the same head start. The age is shown because a week-old rate is
+         fine for a coffee and worth correcting for a laptop. #}
+      <p class="hint" id="fx-hint" {% if chosen_currency == base or not cached_rate %}hidden{% endif %}>
+        Cached rate from
+        <span id="fx-age">{% if cached_rate %}{{ 'today' if cached_rate.age_days == 0 else
+          (cached_rate.age_days|string + ' day' + ('' if cached_rate.age_days == 1 else 's') + ' ago') }}{% endif %}</span>.
+        Change it if today's differs.
+      </p>
+
+      <div class="field">
+        <label class="field__label" for="note">Note</label>
+        <input class="input" id="note" name="note" type="text" maxlength="500"
+               value="{{ values.get('note', '') }}" placeholder="Optional" />
+      </div>
+
+      <label class="check" for="is_shared">
+        <input type="checkbox" id="is_shared" name="is_shared" value="1"
+               {% if values %}{% if values.get('is_shared') %}checked{% endif %}
+               {% elif default_shared %}checked{% endif %} />
+        <span>Visible to the household</span>
+      </label>
+    </div>
+  </details>
+
+  <div class="savebar">
+    <button type="submit" class="btn btn--primary btn--save">Save</button>
+  </div>
+</form>
+
+{% if toast %}
+  <div class="toast" role="status">
+    <div class="toast__text">
+      <strong class="num">{{ toast.currency }} {{ toast.amount }}</strong>
+      {% if toast.what %}<span>· {{ toast.what }}</span>{% endif %}
+    </div>
+    <form method="post" action="{{ url_for('entry.undo', txn_id=toast.id) }}">
+      {{ csrf_input() }}
+      <button type="submit" class="toast__undo">Undo</button>
+    </form>
+  </div>
+{% endif %}
+{% endblock %}

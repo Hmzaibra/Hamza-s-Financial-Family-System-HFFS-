@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Merchants — Expenses{% endblock %}
+
+{% block content %}
+  <div class="toolbar">
+    <h1 class="toolbar__title">Merchants</h1>
+  </div>
+
+  <p class="hint">
+    New merchants are added from the entry form as you shop. This screen is for
+    setting the defaults that auto-fill the form, and for which side of the form
+    each one belongs to.
+  </p>
+
+  <div class="card">
+    <ul class="list">
+      {% for m in merchants %}
+        <li><a class="list__item" href="{{ url_for('reference.merchant_form', merchant_id=m.id) }}">
+          <span class="list__main">
+            <span class="list__title">{{ m.name }}</span>
+            <span class="list__meta">
+              {% if m.category_name or m.account_name or m.default_is_online %}
+                {{ m.category_name or 'no category' }}
+                · {{ m.account_name or 'no account' }}
+                {% if m.default_is_online %} · online{% endif %}
+              {% else %}
+                no defaults set
+              {% endif %}
+              · {{ m.uses }} entr{{ 'y' if m.uses == 1 else 'ies' }}
+            </span>
+          </span>
+          {% if m.kind == 'income' %}<span class="badge">income</span>{% endif %}
+          {% if not m.is_active %}<span class="badge badge--off">hidden</span>{% endif %}
+        </a></li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endblock %}

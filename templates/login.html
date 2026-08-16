@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Sign in — Expenses{% endblock %}
+
+{% block body %}
+  <div class="auth">
+    <div class="auth__inner">
+      <div class="auth__brand">
+        <span class="mark" aria-hidden="true">E</span>
+        <span>Expenses</span>
+      </div>
+
+      {% include "_flashes.html" %}
+
+      <div class="card auth__card">
+        <h1 class="auth__title">Sign in</h1>
+        <p class="auth__hint">Household expense log.</p>
+
+        <form method="post" action="{{ url_for('auth.login') }}" novalidate>
+          {{ csrf_input() }}
+          <div class="field">
+            <label class="field__label" for="username">Username</label>
+            <input class="input" id="username" name="username" type="text"
+                   value="{{ username }}" autocomplete="username"
+                   autocapitalize="none" autocorrect="off" spellcheck="false"
+                   required autofocus />
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="password">Password</label>
+            <input class="input" id="password" name="password" type="password"
+                   autocomplete="current-password" required />
+          </div>
+
+          <label class="check" for="remember">
+            <input type="checkbox" id="remember" name="remember" value="1" checked />
+            <span>Keep me signed in on this device</span>
+          </label>
+
+          <button type="submit" class="btn btn--primary">Sign in</button>
+        </form>
+      </div>
+
+      <p class="auth__foot">Passwords are set by the household admin.</p>
+    </div>
+  </div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Not found — Expenses{% endblock %}
+
+{% block content %}
+  <div class="errorpage">
+    <p class="errorpage__code num">404</p>
+    <p class="empty__body">That page doesn't exist.</p>
+    <a class="btn btn--quiet" href="{{ url_for('dashboard.index') }}">Back to dashboard</a>
+  </div>
+{% endblock %}

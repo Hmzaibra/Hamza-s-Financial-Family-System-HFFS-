@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Sign out — Expenses{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div><h1>Sign out?</h1></div>
+  </div>
+
+  <div class="card card--pad stack">
+    <p class="empty__body">
+      You are signed in as <strong>{{ current_user['display_name'] }}</strong>.
+      Signing back in means typing your password again.
+    </p>
+
+    <div class="row row--actions">
+      <a class="btn btn--quiet" href="{{ url_for('entry.form') }}">Stay signed in</a>
+      <form method="post" action="{{ url_for('auth.logout') }}">
+        {{ csrf_input() }}
+        <button type="submit" class="btn btn--danger">Sign out</button>
+      </form>
+    </div>
+  </div>
+{% endblock %}

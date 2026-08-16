@@ -1,0 +1,13 @@
+# Normalise to LF in the repository and on checkout.
+#
+# This project is edited on Windows and deployed to a Raspberry Pi. Without
+# this, a Windows clone rewrites every file with CRLF, and the migration
+# checksums in schema_migrations stop matching — the runner would report `001`
+# as "changed since it was applied" on a machine that had never edited it.
+* text=auto eol=lf
+
+# The font is binary; never touch it.
+*.woff2 binary
+*.png   binary
+*.jpg   binary
+*.db    binary
