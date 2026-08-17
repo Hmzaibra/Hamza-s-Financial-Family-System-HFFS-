@@ -17,11 +17,31 @@ puts it on the tailnet with a real TLS certificate, which is what makes the
 phones' `https://` work without a certificate warning and without opening a
 port on the router.
 
+Once, in the admin console: **MagicDNS** and **HTTPS certificates** both on
+(Settings → DNS, and Settings → Keys/HTTPS). Serve refuses without the second
+one — the CLI will offer a consent link rather than an error, which is easy to
+click past and then wonder why nothing is listening.
+
 ```bash
 tailscale serve --bg 8000            # https://<machine>.<tailnet>.ts.net → 127.0.0.1:8000
-tailscale serve status               # what is actually being served
+tailscale serve status               # the URL it is actually serving
 tailscale serve --https=443 off      # stop
 ```
+
+On Windows the binary is not on `PATH` in every install:
+
+```powershell
+& "C:\Program Files\Tailscale\tailscale.exe" serve --bg 8000
+& "C:\Program Files\Tailscale\tailscale.exe" serve status
+```
+
+`--bg` is what makes it outlive the terminal, and the configuration persists
+across reboots — so this is a once-per-machine command, not something to run
+next to the app each time. What does *not* persist is the app itself; see the
+laptop section below.
+
+Every phone that should reach it signs into the same tailnet, in the Tailscale
+app. Nothing else on the internet can, and no port is opened on the router.
 
 Do **not** run `tailscale funnel`. That publishes the same URL to the whole
 internet; `serve` keeps it to devices signed into the tailnet.
