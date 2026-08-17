@@ -448,6 +448,13 @@ def main() -> int:
           "tailscale serve" in deploy_doc and "funnel" in deploy_doc)
     check("and warns about the cookie flag that makes login fail in silence",
           "SESSION_COOKIE_SECURE" in deploy_doc)
+    # Two servers, two opposite conventions for naming a factory, and a command
+    # that is wrong in a document is wrong at the moment somebody is standing in
+    # front of a terminal following it.
+    check("the waitress line passes --call, since create_app is a factory",
+          "waitress --listen=127.0.0.1:8000 --threads=6 --call app:create_app" in deploy_doc)
+    check("and the gunicorn one keeps its parentheses, which is the other one's rule",
+          '"app:create_app()"' in unit)
 
     # ------------------------------------------------------------- source
 

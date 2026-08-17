@@ -73,8 +73,15 @@ Gunicorn does not run on Windows — it forks. Waitress does, is one file of
 configuration, and is enough for four phones:
 
 ```powershell
-.venv\Scripts\python.exe -m waitress --listen=127.0.0.1:8000 --threads=6 "app:create_app()"
+.venv\Scripts\python.exe -m waitress --listen=127.0.0.1:8000 --threads=6 --call app:create_app
 ```
+
+`--call` is not optional and the error it gives without it names the wrong
+thing: `invalid format: 'app:create_app()'`. Waitress takes `MODULE:OBJECT` and
+expects that object to *be* the WSGI application; `create_app` is a factory, and
+`--call` is how you say "call it first". Gunicorn takes the opposite convention —
+`"app:create_app()"`, parentheses and all — which is why the two lines in this
+document do not match each other.
 
 Then `tailscale serve --bg 8000` in another window, once. The serve config
 persists across reboots; the waitress command does not — that is the honest
