@@ -1046,6 +1046,15 @@ table td.num,
   margin: 6px 0 0;
 }
 
+/* A second link inside a hint sentence, held away from the first so "show
+   everyone's" and "download" do not read as one run of blue text. Space rather
+   than a bullet: a separator drawn with ::before would sit *inside* the anchor
+   and become part of what a screen reader announces and a thumb can hit. */
+.hint__action {
+  margin-left: 10px;
+  white-space: nowrap;
+}
+
 /* ==========================================================================
    Settings rows, account links and cards
    ========================================================================== */
@@ -1863,4 +1872,31 @@ table td.num,
 
 .card--pad .section__title {
   margin-bottom: 12px;
+}
+
+/* ---- month against month ----------------------------------------------
+   The one place in this app where up is bad. Everywhere else a + is income
+   and green; on a spending comparison, spending more is the thing worth
+   noticing. Different question, opposite direction of "good", so it gets its
+   own two classes rather than borrowing .amt-- and quietly meaning the
+   reverse of what it means three cards higher. */
+
+.delta {
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.delta--worse { color: var(--over); }
+.delta--better { color: var(--accent); }
+
+/* What it was, before the arrow. Quieter than the current figure: the number
+   that matters is this month's, and last month's is the context for it. */
+.compare__was {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.figures__item .delta {
+  margin-top: 2px;
 }

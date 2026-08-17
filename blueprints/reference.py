@@ -260,6 +260,10 @@ def account_save(account_id: int | None = None):
     currency = (form.get("currency") or "EGP").strip().upper()
     sort_order = form.get("sort_order") or "100"
     is_active = 1 if form.get("is_active") else 0
+    # Only meaningful on an account that has its own figures. A card reports the
+    # account behind it, so ticking this on one would print the parent's months
+    # under the card's name — the same truth said twice.
+    reporting = 1 if form.get("reporting_enabled") and acc_type not in LINKABLE_TYPES else 0
 
     # Several people may be named on one account (006). Nobody named means the
     # household's, which is a state rather than a gap — a joint account that
@@ -409,6 +413,7 @@ def account_save(account_id: int | None = None):
     fields = (
         name, acc_type, currency, opening, is_active, int(sort_order or 100),
         parent_id, network, color, withdrawal, local_limit, intl_limit, expires_on, handle,
+        reporting,
     )
 
     try:
@@ -417,8 +422,8 @@ def account_save(account_id: int | None = None):
                 "INSERT INTO accounts (name, type, currency, opening_balance_minor, "
                 "is_active, sort_order, parent_account_id, card_network, card_color, "
                 "withdrawal_limit_minor, credit_limit_local_minor, credit_limit_intl_minor, "
-                "card_expires_on, instapay_handle, created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "card_expires_on, instapay_handle, reporting_enabled, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 fields + (utc_now(),),
             )
             acct.set_owners(cur.lastrowid, owner_ids)
@@ -429,7 +434,7 @@ def account_save(account_id: int | None = None):
                 "opening_balance_minor=?, is_active=?, sort_order=?, parent_account_id=?, "
                 "card_network=?, card_color=?, withdrawal_limit_minor=?, "
                 "credit_limit_local_minor=?, credit_limit_intl_minor=?, card_expires_on=?, "
-                "instapay_handle=? WHERE id=?",
+                "instapay_handle=?, reporting_enabled=? WHERE id=?",
                 fields + (account_id,),
             )
             acct.set_owners(account_id, owner_ids)

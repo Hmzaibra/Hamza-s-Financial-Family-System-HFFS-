@@ -187,6 +187,91 @@
       {% endif %}
     </div>
 
+    {# ---- this month against last ----------------------------------------
+       Only on accounts asked for it (migration 007), because a comparison on
+       an account whose months move for reasons that are not about spending is
+       a card that teaches you to ignore the screen it is on.
+
+       The colours are inverted here and **nowhere else in the app**: spending
+       more than last month is the thing worth noticing, so an increase is the
+       alarming one. That is the opposite of an amount, where + is income and
+       green. Different question, different direction of "good" — which is
+       exactly why it gets its own class rather than reusing .amt. #}
+    {% if compare %}
+      <div class="card card--pad">
+        <p class="section__title">
+          {{ compare.this_label }} against {{ compare.last_label }}
+        </p>
+
+        <ul class="figures">
+          {% for f in [compare.spent, compare.received] %}
+            <li class="figures__item">
+              <span class="figures__label">{{ f.name }}</span>
+              <span class="figures__value num">{{ f.this|money(compare.currency) }}</span>
+              {# "— 0.00 · 0%" is three ways of saying nothing happened, and it
+                 takes longer to read than the sentence. #}
+              {% if f.delta == 0 %}
+                <span class="delta num">— same as {{ compare.last_label }}</span>
+              {% else %}
+                <span class="delta {% if f.name == 'Spent' %}
+                            {%- if f.delta > 0 %}delta--worse{% else %}delta--better{% endif %}
+                          {%- else %}
+                            {%- if f.delta > 0 %}delta--better{% else %}delta--worse{% endif %}
+                          {%- endif %} num">
+                  {%- if f.delta > 0 %}▲{% else %}▼{% endif %}
+                  {{ f.delta|abs|money(compare.currency) }}
+                  {%- if f.pct is not none %} · {{ f.pct|abs }}%{% endif %}
+                </span>
+                <span class="figures__label">
+                  from {{ f.last|money(compare.currency) }}
+                </span>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+
+        {% if compare.rows %}
+          <ul class="ledger">
+            {% for r in compare.rows %}
+              <li class="ledger__row">
+                <span class="ledger__label">
+                  {% if r.icon %}<span class="acct-emoji" aria-hidden="true">{{ r.icon }}</span>{% endif %}{{ r.name }}
+                  {%- if r.is_new %} <span class="badge">new</span>
+                  {%- elif r.is_gone %} <span class="badge badge--off">stopped</span>{% endif %}
+                </span>
+                <span class="ledger__value num">
+                  <span class="compare__was">{{ r.last|money(compare.currency) }} →</span>
+                  {{ r.this|money(compare.currency) }}
+                  <span class="delta {% if r.delta > 0 %}delta--worse{% elif r.delta < 0 %}delta--better{% endif %}">
+                    {%- if r.delta > 0 %}▲{% elif r.delta < 0 %}▼{% endif %}
+                    {%- if r.pct is not none and r.delta %} {{ r.pct|abs }}%{% endif %}
+                  </span>
+                </span>
+              </li>
+            {% endfor %}
+          </ul>
+          <p class="field__hint">
+            Biggest movement first, in either direction — the point is what
+            changed, not what is large. A month you spent nothing in still
+            appears, because a category that stopped is the good news.
+          </p>
+        {% else %}
+          <p class="field__hint">
+            Nothing spent from here in either month, so there is nothing to compare
+            yet.
+          </p>
+        {% endif %}
+
+        {% if compare.unconverted %}
+          <p class="hint">
+            {{ compare.unconverted }} entr{{ 'y' if compare.unconverted == 1 else 'ies' }}
+            across the two months had no captured rate and {{ 'is' if compare.unconverted == 1
+            else 'are' }} left out of both sides.
+          </p>
+        {% endif %}
+      </div>
+    {% endif %}
+
     <div class="card">
       <p class="section__title section__title--pad">Top spending this month</p>
       {% if month.top %}

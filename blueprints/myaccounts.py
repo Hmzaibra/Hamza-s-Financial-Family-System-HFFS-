@@ -103,6 +103,11 @@ def summary(account_id: int):
         balance=money,
         overdrawn=bal.is_overdrawn(account, money),
         month=acct.month_here(account_id, today, vis_sql, vis_params),
+        # Opt-in per account. Two more month queries is not much, but a
+        # comparison on an account whose months move for reasons that are not
+        # about spending is a card that teaches you to ignore the screen.
+        compare=(acct.month_compare(account_id, today, vis_sql, vis_params)
+                 if account["reporting_enabled"] else None),
         # All time, and it lands on the balance above — the month figures are a
         # different window and were being read as if they should reconcile.
         reconcile=acct.reconcile(account),

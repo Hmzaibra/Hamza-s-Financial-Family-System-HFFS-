@@ -8,5 +8,11 @@ tzdata>=2024.1
 # writes — which includes the GPS coordinates of wherever the photo was taken.
 # Prebuilt wheels exist for Raspberry Pi OS, so this needs no compiler.
 Pillow>=10.0
-# Phase 4 only, but pinned here so the Pi venv is built once:
+# Serving it for real. Neither is imported by the app, and neither is needed to
+# run the dev server, so both stay commented and are installed by hand on the
+# machine that needs them — see DEPLOY.md.
+#
+#   Pi:      pip install gunicorn      (forks; the config is deploy/gunicorn.conf.py)
+#   Windows: pip install waitress      (gunicorn does not run there — it forks)
 # gunicorn>=21.2
+# waitress>=3.0

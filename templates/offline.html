@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#F3F5F2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#142329" media="(prefers-color-scheme: dark)" />
+    <title>Can't reach home — Expenses</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
+  </head>
+  {#
+    Deliberately not extending base.html, for two reasons.
+
+    The service worker stores this page at install time, cookie and all, so
+    anything the layout puts on it — the signed-in name, the tab bar, a flash
+    message — would be frozen into a file that is then shown to whoever picks
+    up the phone next, possibly weeks later. A page that outlives its session
+    should not carry one.
+
+    And this is the one page in the app that has to render when the server does
+    not answer, so it depends on nothing: no context processor, no session, no
+    JavaScript. One stylesheet, which the worker caches beside it.
+  #}
+  <body>
+    <div class="shell">
+      <main class="main">
+        <div class="errorpage">
+          <p class="errorpage__code num">⚡</p>
+          <p class="empty__title">Can't reach home</p>
+          <p class="empty__body">
+            The phone is fine — it just can't see the machine the ledger lives
+            on. That usually means the laptop is asleep, or Tailscale is not
+            connected on this phone.
+          </p>
+          <p class="empty__body">
+            Nothing you saved is lost. Anything already logged is on the
+            server, and anything half-typed is still in the form behind this
+            page.
+          </p>
+          <p>
+            <a class="btn btn--primary" href="/">Try again</a>
+          </p>
+          <p class="hint hint--spaced">
+            Entries are never queued on the phone. A spend is checked against
+            the account, the card's limit and the day's rate when it is saved,
+            and a queue would mean finding out hours later that it was refused.
+          </p>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

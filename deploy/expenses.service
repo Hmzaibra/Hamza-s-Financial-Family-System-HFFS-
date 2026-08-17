@@ -1,0 +1,65 @@
+# systemd unit for the household ledger, for the Raspberry Pi.
+#
+#   sudo cp deploy/expenses.service /etc/systemd/system/expenses.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now expenses
+#   systemctl status expenses
+#   journalctl -u expenses -f
+#
+# Paths assume the tree is at /home/pi/expenses and the venv inside it. Change
+# both here if it is somewhere else — there is no configuration file for this on
+# purpose; a unit that reads its paths from elsewhere is a unit you cannot debug
+# with `systemctl cat`.
+
+[Unit]
+Description=Household expenses ledger
+Documentation=file:/home/pi/expenses/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/expenses
+
+# The schema is brought up to the code before the first request rather than
+# after the first 503. It is idempotent — a database already at 007 prints
+# nothing and exits 0 — and it means a `git pull; systemctl restart` is the
+# whole deployment.
+ExecStartPre=/home/pi/expenses/.venv/bin/flask --app app migrate
+
+ExecStart=/home/pi/expenses/.venv/bin/gunicorn \
+  --config /home/pi/expenses/deploy/gunicorn.conf.py \
+  "app:create_app()"
+
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# --- hardening -------------------------------------------------------------
+#
+# This is a private app on a private network, which is a reason to be careful
+# rather than a reason not to bother: the thing it is holding is a complete
+# record of a household's money, and the SD card it is on is the same one the
+# photos are on.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+# ProtectHome=read-only makes the tree unwritable, which is what we want
+# everywhere except the four places that must be written: the database and its
+# two sidecar files, the receipts, and the backups.
+ReadWritePaths=/home/pi/expenses
+
+[Install]
+WantedBy=multi-user.target

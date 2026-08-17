@@ -193,13 +193,17 @@ def month_here(account_id: int, day, vis_sql: str, vis_params: list) -> dict:
         bucket["minor"] += amount
         bucket["count"] += 1
 
-    top = sorted(buckets.values(), key=lambda b: b["minor"], reverse=True)[:5]
+    ranked = sorted(buckets.values(), key=lambda b: b["minor"], reverse=True)
+    top = ranked[:5]
     biggest = top[0]["minor"] if top else 0
     for bucket in top:
         bucket["share"] = (bucket["minor"] * 100 // biggest) if biggest else 0
 
     return {"spent": spent, "received": received, "unconverted": unconverted,
-            "top": top, "currency": base}
+            # The five for the summary card, and all of them for the month
+            # comparison — which needs the categories that went *down* as much
+            # as the ones that went up, and those are rarely in a top five.
+            "top": top, "by_category": ranked, "currency": base}
 
 
 def reconcile(account) -> dict:
@@ -284,6 +288,72 @@ def reconcile(account) -> dict:
         # rather than showing a total that quietly disagrees with the one at the
         # top of the same page.
         "agrees": standing is None or total == standing.minor,
+    }
+
+
+def previous_month(day):
+    """The same day-of-month a month earlier, clamped to a day that exists.
+
+    Only ever used to pick a month, never as a date in its own right — the 28th
+    is enough to name February. Clamping rather than subtracting 30 days, which
+    would land in the wrong month twice a year.
+    """
+    first = day.replace(day=1)
+    return (first.replace(year=first.year - 1, month=12) if first.month == 1
+            else first.replace(month=first.month - 1))
+
+
+def month_compare(account_id: int, day, vis_sql: str, vis_params: list) -> dict:
+    """This month against the one before it, for one account.
+
+    Both months come from `month_here()` — the same function, called twice with
+    a day in each — rather than a second query that could drift from it. The
+    figure on this card and the figure on the one above it are then the same
+    number by construction, not by review.
+
+    The direction of "good" is inverted here and nowhere else in the app.
+    Spending *more* than last month is the thing worth noticing, so an increase
+    is the alarming colour, which is the opposite of the +/− convention on an
+    amount. The template says so where it paints it.
+    """
+    before = previous_month(day)
+    now = month_here(account_id, day, vis_sql, vis_params)
+    then = month_here(account_id, before, vis_sql, vis_params)
+
+    def line(name, icon, this_minor, last_minor):
+        return {
+            "name": name, "icon": icon,
+            "this": this_minor, "last": last_minor,
+            "delta": this_minor - last_minor,
+            # Percentages need a denominator. A category that did not exist last
+            # month is not "up 100%", it is new, and saying so is more useful
+            # than a number that happens to be computable.
+            "pct": ((this_minor - last_minor) * 100 // last_minor) if last_minor else None,
+            "is_new": last_minor == 0 and this_minor > 0,
+            "is_gone": this_minor == 0 and last_minor > 0,
+        }
+
+    # Every category either month touched, so one that stopped entirely is still
+    # a row. A breakdown that only lists what you spent on hides the good news.
+    names = {b["name"]: b["icon"] for b in now["by_category"]}
+    names.update({b["name"]: b["icon"] for b in then["by_category"]})
+    this_by = {b["name"]: b["minor"] for b in now["by_category"]}
+    last_by = {b["name"]: b["minor"] for b in then["by_category"]}
+
+    rows = [line(name, icon, this_by.get(name, 0), last_by.get(name, 0))
+            for name, icon in names.items()]
+    # Biggest movement first, in either direction — the point of the card is
+    # what changed, not what is large.
+    rows.sort(key=lambda r: abs(r["delta"]), reverse=True)
+
+    return {
+        "currency": now["currency"],
+        "this_label": day.strftime("%B"),
+        "last_label": before.strftime("%B"),
+        "spent": line("Spent", None, now["spent"], then["spent"]),
+        "received": line("Came in", None, now["received"], then["received"]),
+        "rows": rows,
+        "unconverted": now["unconverted"] + then["unconverted"],
     }
 
 

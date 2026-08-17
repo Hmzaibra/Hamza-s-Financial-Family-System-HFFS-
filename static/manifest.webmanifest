@@ -1,0 +1,22 @@
+{
+  "name": "Expenses",
+  "short_name": "Expenses",
+  "description": "The household ledger: what was spent, from where, and when.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F3F5F2",
+  "theme_color": "#F3F5F2",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/static/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/img/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Entries", "url": "/transactions" },
+    { "name": "My accounts", "url": "/accounts/" }
+  ]
+}

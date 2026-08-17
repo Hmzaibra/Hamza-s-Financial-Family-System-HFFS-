@@ -103,6 +103,24 @@
        account must not expose one person's spending to everyone who draws on
        it, and that is what section 4 is for. Admin sees every account either
        way, because admin already sees every entry in them. #}
+    {# Offered only on an account with figures of its own. A card reports the
+       balance and the months of the account behind it, so ticking this on one
+       would print the parent's comparison under the card's name — the same
+       truth said twice, on two screens. #}
+    <div class="field" data-when-type="bank credit_card cash wallet">
+      <label class="check" for="reporting_enabled">
+        <input type="checkbox" id="reporting_enabled" name="reporting_enabled" value="1"
+               {% if val('reporting_enabled') %}checked{% endif %} />
+        <span>Compare this account's months</span>
+      </label>
+      <p class="field__hint">
+        Adds a card to this account's summary putting this month against last,
+        category by category. Worth having on an account most spending goes
+        through; less so on one topped up at random, where the figures move for
+        reasons that are not about spending.
+      </p>
+    </div>
+
     <fieldset class="field fieldset">
       <legend class="field__label">Belongs to</legend>
       {% for u in users %}

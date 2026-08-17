@@ -144,6 +144,9 @@
     {% else %}
       The {{ count }} most recent entr{{ 'y' if count == 1 else 'ies' }}, any date.
     {% endif %}
+    {# The file is not capped at the fifty on screen, and saying so here is
+       cheaper than a person exporting twice to find out. #}
+    <a class="hint__action" href="{{ export_url }}" download>Download all as CSV</a>
   </p>
 
   <div class="card">

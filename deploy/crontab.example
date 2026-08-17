@@ -1,0 +1,53 @@
+# Scheduled jobs for the household ledger (Raspberry Pi / any Linux box).
+#
+#   crontab -e        # as the same user the service runs as, `pi`
+#
+# Then paste the four lines below the comments. Check they took with
+# `crontab -l`, and watch them run with `journalctl -t expenses -f` — every job
+# logs through `logger` so a failure at 04:00 leaves something to read at 09:00
+# rather than nothing at all.
+#
+# Why these run from cron and not from inside the app: nothing may touch the
+# network during a request (invariant 7). `fetch-rates` and `check-limits` are
+# the only two things in the codebase that open a socket, and this file is the
+# only thing that calls them.
+
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+APP=/home/pi/expenses
+FLASK=/home/pi/expenses/.venv/bin/flask
+
+# --- exchange rates, daily at 04:10 ---------------------------------------
+#
+# Runs daily; refreshes only when the cache is older than FX_MAX_AGE_DAYS, so
+# the provider sees roughly one call a week and a day the Pi was off is caught
+# up by the next morning rather than skipped.
+#
+# This one matters more than it looks. `transactions.py` refuses a
+# cross-currency transfer whose two sides disagree by more than a factor of ten,
+# and it does that by comparing against the cached rate. An empty cache has
+# nothing to compare against, so the guard stays silent — it is only as awake as
+# this line.
+10 4 * * * cd $APP && $FLASK --app app fetch-rates 2>&1 | logger -t expenses
+
+# --- budget warnings, hourly ----------------------------------------------
+#
+# Sends at most one message per budget per threshold per period, so hourly is
+# not hourly nagging: crossing 80% at 14:00 is one message, and 15:00 sends
+# nothing. Hourly rather than daily because "you have passed the grocery budget"
+# is worth knowing before the next shop, not the following morning.
+0 * * * * cd $APP && $FLASK --app app check-limits 2>&1 | logger -t expenses
+
+# --- orphaned receipt files, Sundays at 03:30 ------------------------------
+#
+# Deleting a transaction cascades its attachment rows away; the JPEGs on disk do
+# not go with them. A trigger records the debt in `orphaned_files` and this pays
+# it. Weekly is fine — the rows are the record, the disk is just late.
+30 3 * * 0 cd $APP && $FLASK --app app sweep-uploads 2>&1 | logger -t expenses
+
+# --- backup, nightly at 02:00 ---------------------------------------------
+#
+# SQLite's online backup API plus a tarball of uploads/, keeping a fortnight.
+# Not strictly part of running the app, and the first thing anyone wishes they
+# had turned on. If the Pi's SD card is the only copy, there is no copy.
+0 2 * * * cd $APP && .venv/bin/python scripts/backup.py --keep 14 2>&1 | logger -t expenses

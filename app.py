@@ -31,7 +31,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, available_timezones
 
 import click
-from flask import Flask, g, render_template, request
+from flask import Flask, g, render_template, request, send_from_directory
 from werkzeug.security import generate_password_hash
 
 import csrf
@@ -146,6 +146,44 @@ def create_app(config_object=Config) -> Flask:
         except Exception:
             code = "EGP"
         return {"current_user": g.get("user"), "base_currency_code": code}
+
+    # ---- installing it on a phone ------------------------------------------
+    #
+    # Three files that have to be served from the *root* rather than out of
+    # /static, and one that has to be public.
+    #
+    # A service worker may only control pages at or below its own URL, so
+    # /static/js/sw.js could only ever manage /static/js/ — which contains no
+    # pages. Served from / instead, with the file itself still living in
+    # static/ where the rest of the JavaScript is.
+    #
+    # The manifest is here for a duller reason: .webmanifest is not in the
+    # mimetypes table on a stock Windows or Debian box, so Flask's static
+    # handler guesses and Chrome refuses it. Naming the type is one line.
+
+    @app.get("/sw.js")
+    def service_worker():
+        response = send_from_directory(app.static_folder, "js/sw.js")
+        # A worker that outlives its own replacement is the classic way to ship
+        # a bug nobody can clear. The browser re-checks this file anyway, but
+        # only if an intermediary has not decided otherwise.
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Content-Type"] = "text/javascript; charset=utf-8"
+        return response
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        response = send_from_directory(app.static_folder, "manifest.webmanifest")
+        response.headers["Content-Type"] = "application/manifest+json"
+        return response
+
+    @app.get("/offline")
+    def offline():
+        # No @login_required, and that is the point: this page is fetched by
+        # the service worker at install and shown when the server cannot be
+        # reached at all. A version of it behind a session would be a redirect
+        # to a login page that is also unreachable.
+        return render_template("offline.html")
 
     @app.errorhandler(400)
     def bad_request(exc):

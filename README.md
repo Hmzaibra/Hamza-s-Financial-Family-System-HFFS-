@@ -2,15 +2,20 @@
 
 Self-hosted household expense log. Flask + SQLite, no build step, no CDN.
 
-**Phases 0 through 3 are complete**, plus the account screens. The entry form,
-the account model, balances, the month breakdown, the transaction list, edit and
-delete, receipt photos with the EXIF stripped off them, budgets that warn over
-Telegram, and a per-account summary with a balance history are all built and
-verified. The family can log real purchases, photograph the slip, hear about it
-when a budget runs out, and watch an account's balance unwind entry by entry.
+**All phases are complete.** The entry form, the account model, balances, the
+month breakdown, the transaction list, edit and delete, receipt photos with the
+EXIF stripped off them, budgets that warn over Telegram, a per-account summary
+with a balance history, an opt-in month-against-last-month comparison, a CSV
+export of whatever the list is showing, and an install-on-your-phone PWA are all
+built and verified. `DEPLOY.md` is the runbook for the laptop now and the Pi
+later.
 
-See `PHASE-1-NOTES.md` and `PHASE-2-3-NOTES.md` for what was decided along the
-way and why, and [Where this goes next](#where-this-goes-next) for Phase 4.
+The family can log real purchases, photograph the slip, hear about it when a
+budget runs out, watch an account's balance unwind entry by entry, see what
+changed since last month, and take the whole thing to a spreadsheet.
+
+See `PHASE-1-NOTES.md`, `PHASE-2-3-NOTES.md` and `PHASE-4-NOTES.md` for what was
+decided along the way and why.
 
 ## Running it
 
@@ -42,6 +47,9 @@ The CLI verbs:
 | `flask --app app telegram-chats` | who has messaged the bot, with their chat ids |
 | `flask --app app sweep-uploads` | unlink receipt files whose rows are gone |
 
+Deployment — where it runs, what schedules the four jobs, and what breaks when
+one of them stops — is `DEPLOY.md`.
+
 `create-admin` is only needed once. After that, people are added in
 Setup → People, which is also where a Telegram chat id is pasted.
 
@@ -61,9 +69,10 @@ python verify_balances.py   # balance arithmetic, month figures, edit and delete
 python verify_receipts.py   # EXIF stripping, resizing, who may see a photo, orphans
 python verify_limits.py     # period maths, scopes, who is told, and how often
 python verify_myaccounts.py # ownership, the account summary, the balance walk
+python verify_phase4.py     # month comparison, CSV export, manifest, worker, deploy
 ```
 
-683 checks. They build their own throwaway databases and touch nothing in
+787 checks. They build their own throwaway databases and touch nothing in
 `app.db` or `uploads/`.
 
 ## Layout
@@ -542,24 +551,75 @@ the list shows only what you may see, and a plain marker row says how many
 entries were skipped. The step in the number is already visible — the marker
 only stops it looking like a bug.
 
+## This month against last
+
+Off by default, per account. There is a tick box on the account form, and the
+summary grows a card only where it is on.
+
+Opt-in because the comparison is only *interesting* on some accounts. A current
+account most spending goes through has a month worth watching; a cash pocket
+topped up at random has a month that moves for reasons that are nothing to do
+with spending, and a card nobody can act on teaches people to skim past the
+numbers beside it. Not offered at all on a linked card, whose figures belong to
+the account behind it.
+
+Both months come from the same function the month card above uses, called twice,
+so the two figures are the same number by construction rather than by review.
+Every category **either** month touched gets a row, sorted by how much it moved,
+so a category that stopped is as visible as one that doubled — that is usually
+the good news.
+
+One thing to know before changing the colours: **up is bad here and nowhere
+else.** Spending more than last month is the alarming colour, which is the
+opposite of the `+`/`−` convention on an amount. The classes are
+`.delta--worse` and `.delta--better` for that reason.
+
+## Taking it to a spreadsheet
+
+"Download all as CSV" under the entry count. The file is whatever the list is
+currently showing — same filters, same search, same person, same visibility
+rule — minus the fifty-row cap, because a file is opened to look at everything.
+
+Amounts are written as text through the same formatter the screens use, so no
+tool has to guess a type. Any cell starting `=`, `+`, `-`, `@`, a tab or a
+carriage return is prefixed with a quote: those are formulas to Excel and
+LibreOffice, and a merchant name is somewhere a person can type one.
+
+There is no import, on purpose. An importer is not a parser but a policy — what
+to do with a row whose account does not exist, whose currency is unknown, whose
+date is ambiguous — and every one of those answers would have to agree with
+`_prepare()`, which is the only place a transaction may be written.
+
+## On a phone
+
+Open the tailnet URL, then **Add to Home Screen**. It installs as a standalone
+app: own icon, no address bar, own entry in the app switcher.
+
+It does **not** work offline, deliberately. The service worker caches one page —
+the one that says the server is unreachable — the stylesheet and an icon, and
+nothing else. A stale balance looks exactly like a live one, and there is no way
+for someone holding a phone to tell which they are looking at, on an app where
+somebody else is writing to the same database.
+
+For the same reason, an entry is never queued on the phone. The FX rate, the
+account balance and the card's limit are all checked at save time on the server,
+so a queued entry is one that has not been checked and might be refused an hour
+later in front of nobody. The form keeps what was typed; retry is pressing Save
+again.
+
 ## Where this goes next
 
-- **Phase 4 — reporting, PWA, CSV, deployment.** `fx_rates` and the
-  per-transaction captured rate are what multi-currency reporting needs.
-  Deployment is gunicorn behind `tailscale serve`; set `SESSION_COOKIE_SECURE=1`
-  when TLS is in front, or the session cookie is set and never sent back and
-  login silently fails. Two cron entries come with it — `fetch-rates` daily and
-  `check-limits` hourly — plus `sweep-uploads` weekly.
+Nothing is planned. What is left out, and why:
 
-Left out on purpose: an **account history page**. The list's account filter
-already answers "what moved through this account", and a second screen showing
-the same rows is a second thing to keep correct. Build it when the filter stops
-being enough.
+Left out: **CSV import**, **OCR**, **offline entry** and a **household-wide
+report** — each has its own paragraph in `PHASE-4-NOTES.md`. The short version
+of the last one: a household-wide month-over-month is dominated by whichever
+account had a big month, and the answer to "why is this up" is always "look at
+the account", which is where the card already is.
 
-Also left out: **OCR on receipt photos**. Reading a total off a till slip is a
-different project with a different failure mode — a number that is confidently
-wrong is worse than no number, and the amount is already typed before the camera
-is opened.
+On OCR specifically: reading a total off a till slip is a different project with
+a different failure mode — a number that is confidently wrong is worse than no
+number, and the amount is already typed before the camera is opened.
 
 Known rough edge to fix whenever it next annoys someone: **with JavaScript off,
 both merchant lists render at once** under their own headings. Hiding the wrong

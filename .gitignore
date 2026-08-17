@@ -12,11 +12,13 @@ venv/
 .pytest_cache/
 .DS_Store
 
-# Design-review screenshots. Regenerate with shots.py / shots_phase23.py; they
-# are output, and a binary diff per tweak is not history worth keeping.
+# Design-review screenshots. Regenerate with shots.py, shots_phase23.py or
+# shots_phase4.py; they are output, and a binary diff per tweak is not history
+# worth keeping.
 shots/
 shots2/
 shots-phase23/
+shots-phase4/
 
 # Scratch used to move files onto this machine. Safe to delete.
 _to_delete/

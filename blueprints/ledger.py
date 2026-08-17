@@ -17,7 +17,7 @@ import receipts
 import transactions as txns
 from blueprints.auth import login_required
 from db import base_currency, query, query_one, today_for
-from money import format_minor
+from money import convert_to_base, format_minor
 from visibility import can_edit, visibility_sql
 
 bp = Blueprint("ledger", __name__)
@@ -144,6 +144,11 @@ def index():
         # trips to draw fifty paperclips is how a list gets slow on an SD card.
         photos=receipts.counts_for(row["id"] for row in rows),
         filters=f, active_filters=active,
+        # Built here rather than in the template so the link carries exactly the
+        # filters the query above ran with — including the person filter, which
+        # is defaulted rather than typed. Empty ones are dropped so the URL a
+        # person copies out of the address bar is readable.
+        export_url=url_for("ledger.export_csv", **{k: v for k, v in f.items() if v}),
         everyone=EVERYONE,
         showing_only_me=f["user_id"] == str(g.user["id"]),
         base=base_currency(),
@@ -155,6 +160,121 @@ def index():
             "SELECT id, name FROM merchants WHERE is_active = 1 ORDER BY name"),
         can_edit=can_edit,
     )
+
+
+# Fields a spreadsheet will execute rather than display. Excel, LibreOffice and
+# Sheets all treat a cell starting with one of these as a formula, so a merchant
+# called `=cmd|'/c calc'!A1` — or a note someone pasted from a website — becomes
+# code the moment the file is opened. The data is this household's own, but a CSV
+# is the one artefact that leaves the app and gets opened somewhere else.
+_FORMULA_LEADS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe_cell(value) -> str:
+    """A value a spreadsheet will show rather than run.
+
+    Prefixed with an apostrophe, which every spreadsheet reads as "this is
+    text" and does not display. Deliberately not stripping the character: a
+    note that starts with a minus is a note the person wrote, and silently
+    editing their words is worse than a leading quote in a cell.
+    """
+    text = "" if value is None else str(value)
+    return "'" + text if text.startswith(_FORMULA_LEADS) else text
+
+
+@bp.get("/transactions.csv")
+@login_required
+def export_csv():
+    """The list as it is currently filtered, as a spreadsheet.
+
+    The same `_filters()` and `_where()` the screen uses, so the file is exactly
+    what is on screen — including `visibility_sql()`, because this is a
+    transaction read like any other and a download is not a way around section 4.
+
+    No row limit, unlike the screen. The screen caps at fifty because nobody
+    scrolls further; a file is opened to look at everything, and a household's
+    lifetime of entries is a few thousand rows.
+
+    Amounts are written as text through `money.format_minor()` rather than as
+    floats. A CSV has no types — whatever is in the cell is what the spreadsheet
+    guesses — and 0.1 + 0.2 in someone else's tool is not this app's problem to
+    create.
+    """
+    import csv
+    import io
+
+    f = _filters()
+    where, params = _where(g.user, f)
+    base = base_currency()
+
+    rows = query(
+        f"SELECT t.*, m.name AS merchant_name, "
+        f"       c.name AS category_name, p.name AS parent_category, "
+        f"       a.name AS account_name, ca.name AS counter_account_name, "
+        f"       u.display_name AS owner_name, "
+        f"       (SELECT COUNT(*) FROM attachments x WHERE x.transaction_id = t.id) AS photos "
+        f"  FROM transactions t "
+        f"  LEFT JOIN merchants  m  ON m.id  = t.merchant_id "
+        f"  LEFT JOIN categories c  ON c.id  = t.category_id "
+        f"  LEFT JOIN categories p  ON p.id  = c.parent_id "
+        f"  LEFT JOIN accounts   a  ON a.id  = t.account_id "
+        f"  LEFT JOIN accounts   ca ON ca.id = t.counter_account_id "
+        f"  LEFT JOIN users      u  ON u.id  = t.user_id "
+        f" WHERE {where} "
+        f" ORDER BY t.occurred_on, t.id",
+        params,
+    )
+
+    buffer = io.StringIO()
+    out = csv.writer(buffer)
+    out.writerow([
+        "date", "type", "amount", "currency", f"amount_in_{base.lower()}",
+        "account", "into_account", "amount_arrived", "arrived_currency",
+        "merchant", "category", "parent_category", "where", "note",
+        "person", "shared", "no_receipt", "photos", "id",
+    ])
+
+    for row in rows:
+        # Same call every screen makes: convertible only when the entry carries
+        # the rate it was captured with. An empty cell says "not converted",
+        # which is the honest answer and one a spreadsheet will not sum.
+        if row["currency"] == base:
+            in_base = format_minor(row["amount_minor"], base)
+        elif row["fx_rate_to_base"]:
+            in_base = format_minor(
+                convert_to_base(row["amount_minor"], row["fx_rate_to_base"]), base)
+        else:
+            in_base = ""
+
+        out.writerow([_safe_cell(v) for v in (
+            row["occurred_on"], row["direction"],
+            format_minor(row["amount_minor"], row["currency"]), row["currency"], in_base,
+            row["account_name"], row["counter_account_name"] or "",
+            format_minor(row["counter_amount_minor"], row["counter_currency"])
+            if row["counter_amount_minor"] else "",
+            row["counter_currency"] or "",
+            row["merchant_name"] or "", row["category_name"] or "",
+            row["parent_category"] or "",
+            "online" if row["is_online"] else "in person",
+            row["note"] or "", row["owner_name"] or "",
+            "yes" if row["is_shared"] else "no",
+            "yes" if row["receiptless"] else "no",
+            row["photos"], row["id"],
+        )])
+
+    # A BOM, because Excel on Windows reads a CSV as the system codepage
+    # otherwise and turns every £ and every Arabic merchant name into mojibake.
+    # utf-8-sig is the one thing that makes a UTF-8 CSV open correctly by
+    # double-click, which is how this file will be opened.
+    payload = buffer.getvalue().encode("utf-8-sig")
+    stamp = today_for(g.user["timezone"]).isoformat()
+
+    return payload, 200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": f'attachment; filename="expenses-{stamp}.csv"',
+        # Someone else's spending, and a file. Never a shared cache.
+        "Cache-Control": "private, no-store",
+    }
 
 
 def _pair_rate(row) -> str | None:
