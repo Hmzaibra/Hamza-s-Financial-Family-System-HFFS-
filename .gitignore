@@ -20,3 +20,7 @@ shots-phase23/
 
 # Scratch used to move files onto this machine. Safe to delete.
 _to_delete/
+
+# Debris the desktop bridge's FUSE mount leaves when a file is replaced while
+# something still has it open. Not ours, never wanted in a commit.
+.fuse_hidden*

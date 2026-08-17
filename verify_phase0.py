@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import db as dbmod
 import money
+from app import create_app
+from config import Config
 from migrate import migrate
 from visibility import can_edit, can_view, visibility_sql
 
@@ -246,6 +248,76 @@ def main() -> int:
     check("utc_now is ISO-8601 Z", dbmod.utc_now().endswith("Z") and "T" in dbmod.utc_now())
 
     conn.close()
+
+    print("\na database behind the code is a sentence, not a traceback")
+    behind = Path(tempfile.mkdtemp())
+
+    class B(Config):
+        DATABASE_PATH = behind / "behind.db"
+        UPLOAD_DIR = behind / "uploads"
+        SECRET_KEY = "test-key"
+        SESSION_COOKIE_SECURE = False
+
+    from migrate import outstanding
+
+    # Every migration except the newest, which is the shape a `git pull` leaves
+    # behind: new code, old schema, and the dev server reloaded on the file
+    # change while the database did not.
+    files = sorted(Config.MIGRATIONS_DIR.glob("*.sql"))
+    partial = dbmod.connect(B.DATABASE_PATH)
+    partial.executescript("BEGIN;\n" + "\n".join(
+        f.read_text(encoding="utf-8") for f in files[:-1]))
+    partial.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, "
+        "filename TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL)")
+    for f in files[:-1]:
+        partial.execute(
+            "INSERT INTO schema_migrations (version, filename, checksum, applied_at) "
+            "VALUES (?,?,?,'t')", (int(f.name.split("_")[0]), f.name, "x"))
+    partial.commit()
+
+    check("outstanding() names the file that has not run",
+          outstanding(partial, Config.MIGRATIONS_DIR) == [files[-1].name])
+    partial.close()
+
+    stale = create_app(B)
+    stale.config.update(TESTING=True)
+    with stale.test_client() as c:
+        r = c.get("/")
+        check("the app refuses to serve rather than 500 halfway through a view",
+              r.status_code == 503)
+        check("and names the command instead of the missing table",
+              b"flask --app app migrate" in r.data)
+        check("saying nothing is broken, because nothing is",
+              b"nothing has been lost" in r.data)
+        check("the stylesheet still loads, so the page is not raw HTML",
+              c.get("/static/css/app.css").status_code == 200)
+
+    # Applying it in another window has to be enough — the check re-runs while
+    # it is failing precisely so this needs no restart.
+    fixed = dbmod.connect(B.DATABASE_PATH)
+    migrate(fixed, Config.MIGRATIONS_DIR, log=lambda *_: None)
+    fixed.close()
+    with stale.test_client() as c:
+        check("and running it un-blocks the app without a restart",
+              c.get("/").status_code in (302, 200))
+
+    print("\nasking whether a database is behind must not change the answer")
+    empty = Path(tempfile.mkdtemp()) / "never-created.db"
+
+    class N(Config):
+        DATABASE_PATH = empty
+        UPLOAD_DIR = Path(tempfile.mkdtemp())
+        SECRET_KEY = "test-key"
+        SESSION_COOKIE_SECURE = False
+
+    fresh = create_app(N)
+    fresh.config.update(TESTING=True)
+    check("a fresh install is not conjured into existence by the boot check",
+          not empty.exists())
+    with fresh.test_client() as c:
+        check("it is told to migrate, like any other database behind the code",
+              c.get("/").status_code == 503)
 
     print()
     if failures:

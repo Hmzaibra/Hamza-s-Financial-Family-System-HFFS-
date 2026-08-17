@@ -1616,3 +1616,26 @@ table td.num,
   margin: 0 0 16px;
   padding: 0;
 }
+
+/* ---- the schema-behind-code page --------------------------------------
+   Names the command rather than the missing table, so the command is what is
+   set apart. The list under it is what has not run yet — useful for knowing
+   whether this is one file or six, and nothing else. */
+
+.errorpage__command {
+  margin: 8px 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--accent-soft);
+  font-weight: 600;
+  /* A command someone is about to retype should never be re-wrapped. */
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.list--plain {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}

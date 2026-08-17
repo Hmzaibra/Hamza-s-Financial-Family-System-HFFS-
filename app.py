@@ -8,6 +8,12 @@
     flask --app app telegram-chats       who has messaged the bot, with chat ids
     flask --app app sweep-uploads        unlink receipt files whose rows are gone
 
+Every request is refused with a plain page while the database is behind the
+migrations on disk. `git pull` brings a new one and the dev server reloads on
+the file change; the database does not reload with it, and the failure that
+produces is a traceback naming a missing table rather than the command that
+creates it.
+
 The last three are Phase 3 and 2. `check-limits` is a cron command and not a
 request for the reason invariant 7 exists: it is the only place besides
 `fetch-rates` that opens a socket, and neither may ever sit between someone and
@@ -21,10 +27,11 @@ from __future__ import annotations
 
 import secrets
 import sys
+from pathlib import Path
 from zoneinfo import ZoneInfo, available_timezones
 
 import click
-from flask import Flask, g, render_template
+from flask import Flask, g, render_template, request
 from werkzeug.security import generate_password_hash
 
 import csrf
@@ -32,6 +39,31 @@ import db
 import transactions
 from config import Config
 from money import flag, format_minor, symbol
+
+
+def _pending_migrations(app) -> list[str]:
+    """Migration files on disk that `app`'s database has not run.
+
+    Never creates the database as a side effect of asking: a missing file means
+    a fresh install, and every migration is outstanding by definition.
+    """
+    import sqlite3
+
+    from migrate import outstanding
+
+    path = Path(app.config["DATABASE_PATH"])
+    if not path.exists():
+        return [p.name for p in sorted(Path(app.config["MIGRATIONS_DIR"]).glob("*.sql"))]
+
+    conn = sqlite3.connect(str(path))
+    try:
+        return outstanding(conn, Path(app.config["MIGRATIONS_DIR"]))
+    except Exception:
+        # A database we cannot read is a different problem with its own error,
+        # and blocking every request behind a guess about it would hide that.
+        return []
+    finally:
+        conn.close()
 
 
 def create_app(config_object=Config) -> Flask:
@@ -52,6 +84,32 @@ def create_app(config_object=Config) -> Flask:
 
     db.init_app(app)
     csrf.init_app(app)
+
+    # ---- the schema has to match the code that is about to query it --------
+    #
+    # `git pull` brings a new migration and the dev server reloads on the file
+    # change; the database does not reload with it. What that used to look like
+    # was a 500 deep inside whichever view first touched the new table — a
+    # traceback, not a sentence, and one that names a table rather than the
+    # command that creates it.
+    #
+    # Checked once at boot so the healthy path costs nothing, and re-checked on
+    # each request only while it is failing, so `flask migrate` in another
+    # window fixes it without a restart.
+    pending = {"files": _pending_migrations(app)}
+    if pending["files"]:
+        app.logger.error(
+            "The database is behind the code — %s not applied. "
+            "Run `flask --app app migrate`.", ", ".join(pending["files"]))
+
+    @app.before_request
+    def schema_matches_code():
+        if not pending["files"] or request.endpoint == "static":
+            return None
+        pending["files"] = _pending_migrations(app)
+        if not pending["files"]:
+            return None
+        return render_template("503.html", pending=pending["files"]), 503
 
     from blueprints import (
         auth, dashboard, entry, ledger, myaccounts, receipts, reference,

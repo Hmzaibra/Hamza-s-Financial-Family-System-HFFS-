@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}One command behind — Expenses{% endblock %}
+
+{# Deliberately names the command rather than the missing table. The traceback
+   this replaces said "no such table: account_owners", which is true, useless,
+   and arrives from three frames deep inside a view. #}
+{% block content %}
+  <div class="errorpage">
+    <p class="errorpage__code num">503</p>
+    <p class="empty__title">The database is behind the code</p>
+    <p class="empty__body">
+      {{ pending|length }} migration{{ 's' if pending|length > 1 }}
+      {{ 'have' if pending|length > 1 else 'has' }} not been applied yet.
+      Nothing is broken and nothing has been lost — the schema just has not
+      caught up with a <span class="num">git pull</span>.
+    </p>
+
+    <p class="empty__body">Run this, then reload:</p>
+    <p class="errorpage__command num">flask --app app migrate</p>
+
+    <p class="hint">
+      On Windows: <span class="num">.venv\Scripts\python.exe -m flask --app app migrate</span>
+    </p>
+
+    <ul class="list list--plain">
+      {% for name in pending %}
+        <li class="list__meta num">{{ name }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endblock %}

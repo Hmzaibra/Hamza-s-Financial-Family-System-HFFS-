@@ -45,6 +45,11 @@ The CLI verbs:
 `create-admin` is only needed once. After that, people are added in
 Setup → People, which is also where a Telegram chat id is pasted.
 
+**Run `migrate` after every pull.** A new migration arrives as a file; the dev
+server reloads on the file change and the database does not reload with it. The
+app notices and refuses to serve, with a page naming the command — it used to be
+a 500 naming a missing table, which is true and useless.
+
 Verify the install:
 
 ```bash
@@ -58,7 +63,7 @@ python verify_limits.py     # period maths, scopes, who is told, and how often
 python verify_myaccounts.py # ownership, the account summary, the balance walk
 ```
 
-615 checks. They build their own throwaway databases and touch nothing in
+623 checks. They build their own throwaway databases and touch nothing in
 `app.db` or `uploads/`.
 
 ## Layout

@@ -72,6 +72,24 @@ def applied(conn: sqlite3.Connection) -> dict[int, str]:
     return {row[0]: row[1] for row in rows}
 
 
+def outstanding(conn: sqlite3.Connection, migrations_dir: Path) -> list[str]:
+    """Migration files this database has not run yet.
+
+    Read-only, deliberately, unlike `applied()` — which bootstraps the
+    `schema_migrations` table as a side effect of looking. This is asked on
+    every boot, and merely asking a question must not change the answer.
+
+    A database with no `schema_migrations` at all is a database that has never
+    been migrated, so everything is outstanding. That is the right answer for a
+    fresh install too.
+    """
+    try:
+        done = {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}
+    except sqlite3.OperationalError:
+        done = set()
+    return [m.filename for m in discover(migrations_dir) if m.version not in done]
+
+
 def migrate(conn: sqlite3.Connection, migrations_dir: Path, log=print) -> list[str]:
     """Apply outstanding migrations. Returns the filenames applied this run."""
     already = applied(conn)

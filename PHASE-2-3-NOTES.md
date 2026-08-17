@@ -480,3 +480,34 @@ choosing owners, because that is the screen where the wrong assumption gets made
 a starting point and is never what gets stored. The rate on the day of the
 transfer is the bank's, not the mid-market one, and the app has no way to know
 it.
+
+### And the one that arrived by traceback
+
+`git pull` brought migration `006`, the dev server reloaded on the file change,
+the database did not reload with it, and the Accounts tab answered with
+`sqlite3.OperationalError: no such table: account_owners` from three frames
+inside a view.
+
+Every part of that is true and none of it is useful. It names the table rather
+than the command that creates it, it arrives as a stack trace on a screen meant
+for someone checking their spending, and it only fires on whichever page happens
+to touch the new table first — so an app that is entirely broken looks partly
+fine.
+
+The app now compares the migrations on disk against `schema_migrations` at boot
+and refuses every request while it is behind, with a page that says which files
+have not run and the exact command. Three details in it are deliberate:
+
+- **Checked once at startup**, so the healthy path costs nothing, and re-checked
+  per request *only while it is failing* — which means `flask migrate` in
+  another window fixes it without a restart.
+- **`outstanding()` is read-only**, unlike the existing `applied()`, which
+  bootstraps `schema_migrations` as a side effect of looking. Asking a question
+  on every boot must not change the answer, and starting the app must not
+  conjure `app.db` into existence.
+- **Static files are exempt**, so the page arrives styled rather than as raw
+  HTML — which would read like a crash, which is the impression this exists to
+  remove.
+
+A fresh install falls out of the same rule: nothing is applied, everything is
+outstanding, and the first page anyone sees tells them to migrate.

@@ -20,7 +20,7 @@ python verify_phase0.py && python verify_auth.py && python verify_phase1.py && \
   python verify_receipts.py && python verify_limits.py && python verify_myaccounts.py
 ```
 
-615 checks at time of writing. A failing check is a real regression or a rule that
+623 checks at time of writing. A failing check is a real regression or a rule that
 changed on purpose — if the latter, update the check *and* say so, never delete it.
 
 Several are *source* checks rather than behavioural ones: no `date.today()` in
@@ -98,7 +98,10 @@ check what you thought to ask.
   this codebase is heavily commented on purpose and a bare patch reads as foreign.
 - Errors shown to a person are sentences they can act on, not stack traces or
   constraint names. `EntryError(message, field)` re-renders the form with what
-  they typed intact.
+  they typed intact. The same rule at the other end of the scale: a database
+  behind the migrations on disk refuses every request with a page naming
+  `flask --app app migrate`, rather than a 500 naming a missing table from
+  three frames inside a view.
 - Nothing dead ships: no unused helpers, no placeholder controls that lie about
   what they do. A reserved *space* with a comment is fine (see `.pos__aux`).
 - New rules get enforced twice: in Python for the sentence, in a trigger or CHECK
