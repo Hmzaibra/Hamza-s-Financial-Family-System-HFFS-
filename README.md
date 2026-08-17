@@ -63,7 +63,7 @@ python verify_limits.py     # period maths, scopes, who is told, and how often
 python verify_myaccounts.py # ownership, the account summary, the balance walk
 ```
 
-667 checks. They build their own throwaway databases and touch nothing in
+683 checks. They build their own throwaway databases and touch nothing in
 `app.db` or `uploads/`.
 
 ## Layout
@@ -183,6 +183,34 @@ Merchants belong to **spending** or **income**, never silently to both:
 `merchants.kind`. Who you buy from and who pays you are different lists that
 happen to share a table, and mixing them puts an employer in the chip row while
 you are standing at a till.
+
+## Transfers
+
+A transfer moves money between two of your own accounts, and two things follow
+from that which took a while to notice.
+
+**What leaves an account is in that account's currency.** There is no such thing
+as taking euros out of an Egyptian account: the bank converts, and what left was
+pounds. So `_prepare()` *takes* the source account's currency on a transfer
+rather than reading the form, and the entry screen stops offering a picker whose
+answer would be overruled.
+
+**And then no rate to the base currency is involved.** Both legs are denominated
+in their own account's currency, so `balances._foreign_legs()` and
+`accounts._effect()` — which only convert a leg whose currency differs from the
+account holding it — never have anything to convert. A rate stored there is a
+number nothing reads, so a transfer is not asked for one and does not store one.
+
+Rows written before this keep their rate and still convert; the old shape is
+handled, it is just no longer created.
+
+What a transfer *does* have is a rate between its two accounts, and the entry
+form asks for that instead — "Rate AED → EUR", two-way with the arriving amount,
+because a bank quotes you a rate and doing that division at a counter is not
+something anyone should have to do. It is stored nowhere: it is the arriving
+amount over the amount, and those two are what get saved. The box has no `name`
+and cannot post. The edit screen states the same rate as a sentence, derived
+from the two stored numbers.
 
 ## Exchange rates
 

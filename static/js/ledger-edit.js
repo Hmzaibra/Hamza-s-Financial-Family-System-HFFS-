@@ -71,7 +71,10 @@
 
   function syncCurrency() {
     if (!currency) return;
-    toggle("fx-field", currency.value.toUpperCase() !== base);
+    // A rate to base values a foreign spend. A transfer has both legs in their
+    // own account's currency and nothing reads one, so the pair goes together.
+    toggle("fx-field", !isTransfer() && currency.value.toUpperCase() !== base);
+    toggle("currency-field", !isTransfer());
   }
 
   var lastIntoCode = null;
@@ -94,7 +97,7 @@
   }
 
   form.addEventListener("change", function (e) {
-    if (e.target.id === "direction") { syncDirection(); syncCounter(); }
+    if (e.target.id === "direction") { syncDirection(); syncCurrency(); syncCounter(); }
     if (e.target.id === "currency") { syncCurrency(); syncCounter(); }
     if (e.target.id === "counter_account_id") syncCounter();
   });

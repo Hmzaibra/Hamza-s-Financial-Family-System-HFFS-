@@ -641,3 +641,77 @@ which the server cannot see until you save.
 
 Nothing about what gets stored changed. It is still one form, one POST, and
 `transactions._prepare()` — the same function the entry screen goes through.
+
+---
+
+## The transfer currency field, and what it was hiding
+
+The question was "what exactly does the currency field represent?" on a transfer
+between an AED account and a EUR one. The honest answer turned out to be
+*nothing*, and chasing that removed a stored column's worth of fiction.
+
+### What leaves an account is in that account's currency
+
+There is no such thing as taking euros out of an Egyptian account. The bank
+converts and what left the account was pounds. The form was letting you say
+otherwise, and `_prepare()` believed it — which records the *destination's*
+amount on the source leg and then needs an exchange rate to undo, describing the
+conversion twice.
+
+It now takes the source account's currency rather than reading the box, and the
+box is gone from both screens. The code moved onto the Amount label, and on the
+till display the currency mark follows the account instead of being frozen at
+the household's own — it was reading "E£ 1000" over an amount that was dirhams.
+
+This is exactly the shape of the earlier data: a transfer stored as 10.00 **EUR**
+out of an **EGP** account, with a rate of 60 attached to make the balance come
+out. The balance was right. The encoding was describing the conversion on the
+wrong leg.
+
+### And therefore no rate to base
+
+Once both legs are in their own account's currency, the two places that convert
+— `balances._foreign_legs()` and `accounts._effect()` — only ever convert a leg
+whose currency differs from the account holding it, which can no longer happen
+on a transfer. The rate to base is a stored number nothing reads.
+
+So a transfer is not asked for one and does not store one. That is the "nothing
+dead ships" rule reaching a column, and it settles the second half of the
+complaint — the rate to EGP was not merely useless on that screen, it was
+useless full stop. On a **spend** it stays exactly as it was: an Egyptian card
+charged in euros is real, and the month total has to value it.
+
+Rows written before this keep their rate and still convert. The old shape is
+handled, it is just no longer created — and there is a check asserting the
+property (`t.currency = a.currency` on every new transfer leg) rather than only
+the consequence.
+
+One existing check asserted the opposite — that the rate was captured on a
+transfer. It was updated rather than deleted, with the reason in its label,
+which is what the house rule about a rule changing on purpose is for.
+
+### What a transfer actually has a rate for
+
+Its two accounts. The entry form asks for that instead: "Rate AED → EUR",
+two-way with the arriving amount, because a bank quotes a rate and dividing at a
+counter is not a thing anyone should have to do.
+
+It is stored nowhere — it is the arriving amount over the amount, and those two
+are what get saved. The input has no `name` and cannot post, so no validation
+and no schema changed. It is hidden until the script unhides it, so a browser
+with scripting off never meets a control that would do nothing for it; the
+arriving amount is the field the server reads either way, and it is directly
+above. The edit screen states the same rate as a sentence, derived server-side
+from the two stored numbers, with no script at all.
+
+### Two more found in a screenshot
+
+Both while every check above was already passing.
+
+The rate-to-base field was being un-hidden again after the direction changed,
+because three different call sites reach `syncFx()` and whichever ran last won.
+The test belongs *inside* `syncFx`, not at its callers. And the till display's
+currency mark was static, so a 1000 AED transfer was captioned `E£`.
+
+Assertions check what you thought to ask, and neither of these was a thing I
+thought to ask.

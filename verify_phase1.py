@@ -257,7 +257,14 @@ def main() -> int:
         check("both sides recorded (100 EUR out, 5420 EGP in)",
               row["amount_minor"] == 10000 and row["counter_amount_minor"] == 542000)
         check("counter currency recorded", row["counter_currency"] == "EGP")
-        check("the day's fx rate captured", abs(row["fx_rate_to_base"] - 54.2) < 1e-9)
+        # This used to assert the opposite — that the rate to base was captured
+        # on a transfer. The rule changed on purpose: both legs of a transfer
+        # are in their own account's currency, so no arithmetic anywhere reads
+        # a rate to base on one, and storing a number nobody reads is the thing
+        # the "nothing dead ships" rule is about. The section further down
+        # proves the property that makes it safe.
+        check("and no rate to base, which nothing on a transfer reads",
+              row["fx_rate_to_base"] is None)
 
     with app.test_client() as c:
         login(c)
@@ -533,6 +540,98 @@ def main() -> int:
         check("the entry list paints all three",
               b"amt--spend" in page and b"amt--income" in page
               and b"amt--transfer" in page)
+
+    print("\nwhat leaves an account is in that account's currency")
+    user = {"id": 1, "timezone": "Africa/Cairo", "default_shared": 1, "role": "admin"}
+    with app.app_context(), app.test_request_context():
+        # Account 3 is the EUR bank; account 1 is EGP. A transfer out of the EUR
+        # account is euros, whatever the form claims — there is no such thing as
+        # taking pounds out of a euro account, the bank converts and what left
+        # was euros.
+        tid = txns.create_transaction(user, {
+            "amount": "10", "direction": "transfer", "account_id": "3",
+            "counter_account_id": "1", "counter_amount": "600",
+            "occurred_on": "2026-08-16",
+            # Both of these should be ignored outright.
+            "currency": "USD", "fx_rate_to_base": "50"})
+        row = dbmod.query_one("SELECT * FROM transactions WHERE id = ?", (tid,))
+
+        check("the source account's currency is taken, not the form's",
+              row["currency"] == "EUR")
+        check("and the arriving side is the destination account's",
+              row["counter_currency"] == "EGP")
+        check("no rate to base is stored on a transfer — nothing reads one",
+              row["fx_rate_to_base"] is None)
+
+        # Which means it is no longer a required field there.
+        second = txns.create_transaction(user, {
+            "amount": "5", "direction": "transfer", "account_id": "3",
+            "counter_account_id": "1", "counter_amount": "300",
+            "occurred_on": "2026-08-16"})
+        check("so a transfer no longer has to be given one", second is not None)
+
+        # Both legs in their own account's currency is exactly what makes the
+        # rate unnecessary — this is the property, not a side effect.
+        legs = dbmod.query_one(
+            "SELECT COUNT(*) AS n FROM transactions t "
+            "  JOIN accounts a ON a.id = t.account_id "
+            " WHERE t.direction = 'transfer' AND t.currency <> a.currency "
+            "   AND t.id IN (?, ?)", (tid, second))["n"]
+        check("both legs sit in their own account's currency, which is why",
+              legs == 0)
+
+        # A foreign spend is a different thing and still needs one: an Egyptian
+        # card charged in euros is real, and the month total has to value it.
+        try:
+            txns.create_transaction(user, {
+                "amount": "20", "direction": "spend", "account_id": "1",
+                "currency": "EUR", "occurred_on": "2026-08-16"})
+            check("a foreign spend still has to carry its rate", False)
+        except txns.EntryError as exc:
+            check("a foreign spend still has to carry its rate",
+                  "rate" in str(exc).lower())
+
+    print("\nso the transfer screens stop asking about either")
+    with app.test_client() as c:
+        login(c)
+        page = c.get(f"/transactions/{tid}/edit").data
+        check("the currency picker is gone on a transfer",
+              b'id="currency-field" hidden' in page)
+        check("and so is the rate to base", b'id="fx-field" hidden' in page)
+        check("the amount says which currency it is in instead",
+              b"Amount (EUR)" in page)
+        check("and the rate that did apply is stated — between the two accounts",
+              b"That is a rate of" in page)
+
+        spend = dbmod.query_one(
+            "SELECT id FROM transactions WHERE direction = 'spend' "
+            "  AND currency <> 'EGP' LIMIT 1")
+        if spend:
+            page = c.get(f"/transactions/{spend['id']}/edit").data
+            check("a foreign spend still shows both, because it needs both",
+                  b'id="currency-field" hidden' not in page
+                  and b'id="fx-field" hidden' not in page)
+
+        page = c.get("/").data
+        check("the entry form hides the pair on a transfer through the same rule",
+              b'id="base-currency-fields"' in page)
+        check("and offers the rate between the two accounts instead",
+              b'id="pair-rate-field"' in page)
+        check("which never posts, because it is not a stored fact",
+              b'id="pair-rate" type="text"' in page
+              and b'name="pair-rate"' not in page)
+        js = Path("static/js/entry.js").read_text(encoding="utf-8")
+        check("and the two boxes derive each other as you type",
+              "arrivingFromRate" in js and "rateFromArriving" in js)
+
+        # Both of these were caught in a screenshot with the checks above
+        # already passing, which is the whole argument for taking them.
+        check("the rate-to-base test lives inside syncFx, not at its call sites "
+              "— three of them reach it and the last one to run would win",
+              'currentDirection() !== "transfer"' in js.split("function syncFx")[1][:400])
+        check("and the till's currency mark follows the account, so it never "
+              "reads as a claim that dirhams are pounds",
+              "posCurrency" in js and "amount-currency" in js)
 
     print()
     if failures:

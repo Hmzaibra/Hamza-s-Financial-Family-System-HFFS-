@@ -45,11 +45,17 @@
 
       <div class="grid-2">
         <div class="field">
-          <label class="field__label" for="amount">Amount</label>
+          <label class="field__label" for="amount">
+            Amount{% if is_transfer %} ({{ values.get('currency') }}){% endif %}
+          </label>
           <input class="input num input--lead" id="amount" name="amount" type="text"
                  inputmode="decimal" value="{{ values.get('amount', '') }}" />
         </div>
-        <div class="field">
+        {# Not a choice on a transfer. What leaves an account is in that
+           account's currency, and _prepare() takes it rather than reading this
+           box — so offering it would be offering a decision that gets
+           overruled. The code is on the Amount label instead. #}
+        <div class="field" id="currency-field" {% if is_transfer %}hidden{% endif %}>
           <label class="field__label" for="currency">Currency</label>
           <select class="input" id="currency" name="currency">
             {% for code in ['EGP','EUR','USD','GBP','AED','SAR'] %}
@@ -59,10 +65,12 @@
         </div>
       </div>
 
-      {# Only when the entry is in something other than the household's own
-         currency. On a base-currency entry the box is not "empty", it is
-         meaningless — there is no rate from EGP to EGP. #}
-      <div class="field" id="fx-field" {% if not is_foreign %}hidden{% endif %}>
+      {# Two reasons this can be absent, and both are "meaningless" rather than
+         "empty": there is no rate from {{ base }} to {{ base }}, and a transfer
+         has both legs in their own account's currency so nothing reads a rate
+         to base on one at all. A rate to {{ base }} values a foreign *spend*,
+         which is what the month total needs it for. #}
+      <div class="field" id="fx-field" {% if not is_foreign or is_transfer %}hidden{% endif %}>
         <label class="field__label" for="fx_rate_to_base">
           Rate to {{ base }}
         </label>
@@ -133,6 +141,10 @@
           <p class="field__hint">
             Only when the two accounts are in different currencies — what actually
             landed, at the rate the bank gave you.
+            {%- if pair_rate %}
+              That is a rate of <span class="num">{{ pair_rate }}</span>
+              {{ values.get('currency') }} → {{ values.get('counter_currency') }}.
+            {% endif %}
           </p>
         </div>
       </div>

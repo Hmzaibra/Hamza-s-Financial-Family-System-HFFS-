@@ -157,6 +157,32 @@ def index():
     )
 
 
+def _pair_rate(row) -> str | None:
+    """The rate this transfer actually happened at, between its two accounts.
+
+    Never stored — it is the arriving amount over the amount, and those two are
+    what get saved. Derived for display so the edit screen can state the rate
+    without asking anyone to divide, and without a third number that could
+    disagree with the two real ones.
+
+    Deliberately not money: a rate is a ratio, `money.py` owns amounts and this
+    is not one. Four places, which is what a bank quotes.
+    """
+    if row["direction"] != "transfer" or not row["counter_amount_minor"]:
+        return None
+    if row["currency"] == row["counter_currency"]:
+        return None
+    # Minor units cancel only when both currencies have the same exponent, so
+    # the division happens on the major-unit values money.py produces.
+    from decimal import Decimal
+    out = Decimal(format_minor(row["amount_minor"], row["currency"]).replace(",", ""))
+    arrived = Decimal(
+        format_minor(row["counter_amount_minor"], row["counter_currency"]).replace(",", ""))
+    if not out:
+        return None
+    return f"{(arrived / out):.4f}"
+
+
 def _edit_values(row) -> dict:
     """A stored row as the form sees it.
 
@@ -184,6 +210,7 @@ def _edit_view(row, values, error=None, status: int = 200):
             merchants=query(
                 "SELECT id, name, kind FROM merchants WHERE is_active = 1 ORDER BY name"),
             base=base_currency(),
+            pair_rate=_pair_rate(row),
             attachments=receipts.for_transaction(row["id"]),
         ),
         status,

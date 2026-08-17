@@ -519,12 +519,35 @@ def _prepare(user, form, exclude_id: int | None = None) -> dict:
     if not currency.isalpha() or len(currency) != 3:
         raise EntryError("Pick a currency.", "currency")
 
+    if direction == "transfer":
+        # What leaves an account is in that account's currency. There is no such
+        # thing as taking euros out of an Egyptian account: the bank converts,
+        # and what left the account is pounds. Letting the form say otherwise
+        # records the *destination's* amount on the source leg, which then needs
+        # an exchange rate to undo and quietly describes the conversion twice.
+        #
+        # So it is not asked for on a transfer, it is taken. The entry form hides
+        # the picker rather than offering a choice this line would overrule.
+        currency = account["currency"]
+
     try:
         amount_minor = parse_to_minor(form.get("amount"), currency)
     except MoneyError as exc:
         raise EntryError(str(exc), "amount") from None
 
-    fx_rate = _fx_rate(form.get("fx_rate_to_base"), currency, base)
+    if direction == "transfer":
+        # And with both legs in their own account's currency, nothing anywhere
+        # reads a rate to base on a transfer — `balances._foreign_legs()` and
+        # `accounts._effect()` only convert a leg whose currency differs from
+        # the account holding it, which can no longer happen. Asking for a
+        # number nobody reads is the "nothing dead ships" rule with a text box
+        # around it.
+        #
+        # Rows written before this stay as they are and still convert; the old
+        # shape is handled, it is just no longer created.
+        fx_rate = None
+    else:
+        fx_rate = _fx_rate(form.get("fx_rate_to_base"), currency, base)
     occurred_on = _valid_date(form.get("occurred_on"), user["timezone"])
 
     is_online = 1 if str(form.get("is_online") or "0").strip() in ("1", "on", "true") else 0

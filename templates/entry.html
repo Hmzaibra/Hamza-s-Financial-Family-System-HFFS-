@@ -227,6 +227,30 @@
         </div>
       </div>
 
+      {# The rate this transfer actually happened at — between the two accounts,
+         which is the only rate involved in one. Nothing stores it: it is
+         `amount that arrived ÷ amount`, and the two amounts are what get saved.
+         So this box has no `name` and can never post; it exists to be typed in
+         instead of the arriving amount, because a bank quotes you a rate and
+         doing that division on a phone at a counter is not a thing anyone
+         should have to do.
+
+         Hidden until entry.js unhides it, and hidden again by it whenever the
+         two accounts share a currency. With scripting off it never appears at
+         all, which is honest — the arriving amount is the field the server
+         reads either way, and it is right there above. #}
+      <div class="field" id="pair-rate-field" hidden>
+        <label class="field__label" for="pair-rate">
+          Rate <span id="pair-rate-from">—</span> → <span id="pair-rate-to">—</span>
+        </label>
+        <input class="input num" id="pair-rate" type="text" inputmode="decimal"
+               autocomplete="off" placeholder="0.0000" />
+        <p class="field__hint">
+          The bank's rate on the day, spread and fees included. Type either this
+          or the amount above and the other follows.
+        </p>
+      </div>
+
       <div class="grid-2">
         <div class="field">
           <label class="field__label" for="occurred_on">Date</label>
@@ -244,7 +268,24 @@
 
       {% set chosen_currency = values.get('currency') or base %}
       {% set cached_rate = fx_rates.get(chosen_currency) %}
-      <div class="grid-2">
+
+      {# Currency and the rate to {{ base }} are both about *this* entry being
+         denominated in something other than the household's own money, which is
+         a real thing for a spend — an Egyptian card charged in dollars — and
+         not a thing at all for a transfer.
+
+         What leaves an account is in that account's currency. You cannot take
+         euros out of an Egyptian account; the bank converts, and what left was
+         pounds. transactions._prepare() takes the source account's currency on
+         a transfer rather than reading this box, so offering the box would be
+         offering a choice that gets overruled.
+
+         And with both legs then in their own account's currency, no arithmetic
+         anywhere reads a rate to {{ base }} on a transfer. The pair goes away
+         together, and the transfer's own rate — the one between the two
+         accounts — takes their place below. #}
+      <div class="grid-2" id="base-currency-fields"
+           {% if direction == 'transfer' %}hidden{% endif %}>
         <div class="field">
           <label class="field__label" for="currency">Currency</label>
           <select class="input" id="currency" name="currency">
@@ -270,7 +311,8 @@
       {# Pre-filled server-side as well as in script, so the no-JavaScript path
          gets the same head start. The age is shown because a week-old rate is
          fine for a coffee and worth correcting for a laptop. #}
-      <p class="hint" id="fx-hint" {% if chosen_currency == base or not cached_rate %}hidden{% endif %}>
+      <p class="hint" id="fx-hint"
+         {% if direction == 'transfer' or chosen_currency == base or not cached_rate %}hidden{% endif %}>
         Cached rate from
         <span id="fx-age">{% if cached_rate %}{{ 'today' if cached_rate.age_days == 0 else
           (cached_rate.age_days|string + ' day' + ('' if cached_rate.age_days == 1 else 's') + ' ago') }}{% endif %}</span>.

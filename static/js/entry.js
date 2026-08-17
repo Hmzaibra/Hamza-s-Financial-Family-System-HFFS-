@@ -27,6 +27,11 @@
   var counterAccount = qs("counter_account_id");
   var counterField = qs("counter-amount-field");
   var counterAmount = qs("counter_amount");
+  var baseFields = qs("base-currency-fields");
+  var rateField = qs("pair-rate-field");
+  var rateInput = qs("pair-rate");
+  var rateFrom = qs("pair-rate-from");
+  var rateTo = qs("pair-rate-to");
   /* One box does both jobs: it filters the list, and it *is* the new-merchant
      field the server reads when nothing matched. */
   var search = qs("merchant-search");
@@ -114,6 +119,17 @@
     refreshChips();
   });
 
+  /* `input` rather than `change`: these two derive each other as you type, and
+     waiting for a blur would mean watching a stale number sit next to a fresh
+     one. */
+  form.addEventListener("input", function (e) {
+    if (e.target.id === "pair-rate") arrivingFromRate();
+    if (e.target.id === "counter_amount") {
+      counterAmount.dataset.touched = "1";
+      rateFromArriving();
+    }
+  });
+
   form.addEventListener("change", function (e) {
     if (e.target.name === "merchant_id") {
       applyMerchantDefaults(e.target);
@@ -128,16 +144,36 @@
     }
     if (e.target.id === "currency") syncFx(true);
     if (e.target.id === "counter_account_id") syncCounter();
-    if (e.target.id === "counter_amount") counterAmount.dataset.touched = "1";
+    if (e.target.id === "counter_amount") {
+      counterAmount.dataset.touched = "1";
+      rateFromArriving();
+    }
   });
 
   /* ---- currency follows the account, rate appears only when needed ---- */
+
+  var posCurrency = qs("amount-currency");
+  /* The symbols the display can show. money.py owns this table server-side and
+     the codes are already on the page; this is the same map for the one label
+     that has to change without a round trip. Anything not here falls back to
+     the code itself, which is what money.symbol() does. */
+  var SYMBOLS = { EGP: "E\u00a3", EUR: "\u20ac", USD: "$", GBP: "\u00a3",
+                  AED: "AED", SAR: "SAR" };
 
   function syncCurrency() {
     if (!account || !currency) return;
     var opt = account.options[account.selectedIndex];
     var code = opt && opt.dataset.currency;
     if (code) currency.value = code;
+
+    /* The mark beside the amount is the only thing on the till screen saying
+       what the number is denominated in. Left at the household's own currency
+       it reads as a claim — "E£ 1000" over an amount that is actually dirhams. */
+    if (posCurrency) {
+      var now = currency.value.toUpperCase();
+      posCurrency.textContent = SYMBOLS[now] || now;
+    }
+
     syncFx(true);
   }
 
@@ -148,7 +184,12 @@
      survives. */
   function syncFx(replace) {
     if (!fxField || !currency) return;
-    var foreign = currency.value.toUpperCase() !== base;
+    /* A transfer's two legs are each in their own account's currency, so
+       nothing anywhere reads a rate to base on one — _prepare() does not even
+       store it. The test belongs here rather than at the three call sites,
+       because whichever of them ran last would otherwise win. */
+    var foreign = currentDirection() !== "transfer"
+                  && currency.value.toUpperCase() !== base;
     fxField.hidden = !foreign;
 
     var opt = currency.options[currency.selectedIndex];
@@ -176,6 +217,18 @@
     return checked ? checked.value : "spend";
   }
 
+  /* Currency and the rate to base are a spend's business. A transfer leaves an
+     account in that account's currency — _prepare() takes it rather than
+     reading the box — and with both legs then in their own currency nothing
+     reads a rate to base on one. Hidden together, and the pair rate above
+     stands in. */
+  function syncBaseCurrencyFields() {
+    if (baseFields) baseFields.hidden = currentDirection() === "transfer";
+    // syncFx knows about transfers itself, so the hint and the field cannot
+    // disagree about whether one is on screen.
+    syncFx(false);
+  }
+
   function syncDirection() {
     var isTransfer = currentDirection() === "transfer";
     if (transferFields) transferFields.hidden = !isTransfer;
@@ -184,6 +237,7 @@
       if (more) more.open = true;
     }
     refreshChips();
+    syncBaseCurrencyFields();
     syncCounter();
   }
 
@@ -203,23 +257,62 @@
     return null;
   }
 
+  function number(el) {
+    var n = parseFloat(String(el && el.value).replace(",", "."));
+    return isFinite(n) && n > 0 ? n : null;
+  }
+
+  /* The rate between the two accounts, which is the only rate a transfer
+     involves. Nothing stores it — it is the arriving amount divided by the
+     amount, and those two are what get saved — so this is a way of typing one
+     of them, not a third fact. */
+  function cachedPairRate(intoCode) {
+    var from = rateFor(currency && currency.value.toUpperCase());
+    var into = rateFor(intoCode);
+    return from && into ? from / into : null;
+  }
+
+  // Guards the two boxes from re-deriving each other forever.
+  var deriving = false;
+
+  function arrivingFromRate() {
+    if (deriving || !counterAmount || !amount || !rateInput) return;
+    var out = number(amount), rate = number(rateInput);
+    if (out === null || rate === null) return;
+    deriving = true;
+    // Two decimals is right for every currency this form offers. money.py owns
+    // the exponent table for the ones it is not, and the server re-parses this
+    // string anyway — nothing here is ever stored as typed.
+    counterAmount.value = (out * rate).toFixed(2);
+    counterAmount.dataset.touched = "1";
+    deriving = false;
+  }
+
+  function rateFromArriving() {
+    if (deriving || !counterAmount || !amount || !rateInput) return;
+    var out = number(amount), arriving = number(counterAmount);
+    if (out === null || arriving === null) return;
+    deriving = true;
+    rateInput.value = (arriving / out).toFixed(4);
+    deriving = false;
+  }
+
   /* What the arriving amount would be at the cached rate — a starting point,
      not an answer. The rate that matters is the bank's on the day, with its
      spread and its fee, and only the person holding the statement knows it. */
   function suggestArriving(intoCode) {
     if (!counterAmount || !amount || !currency) return;
-    if (counterAmount.dataset.touched === "1") return;
+    if (counterAmount.dataset.touched === "1") {
+      rateFromArriving();
+      return;
+    }
 
-    var out = parseFloat(String(amount.value).replace(",", "."));
-    var from = rateFor(currency.value.toUpperCase());
-    var into = rateFor(intoCode);
-    if (!isFinite(out) || out <= 0 || !from || !into) return;
+    var out = number(amount);
+    var rate = cachedPairRate(intoCode);
+    if (out === null || !rate) return;
 
-    var arriving = (out * from) / into;
-    // Two decimals is right for every currency this form offers. money.py owns
-    // the exponent table for the ones it is not, and the server re-parses this
-    // string anyway — nothing here is ever stored as typed.
-    counterAmount.value = arriving.toFixed(2);
+    counterAmount.value = (out * rate).toFixed(2);
+    if (rateInput) rateInput.value = rate.toFixed(4);
   }
 
   /* The currency the destination account is denominated in, last time we
@@ -255,6 +348,17 @@
       counterAmount.value = "";
       counterAmount.dataset.touched = "";
       lastIntoCode = code || null;
+    }
+
+    /* The rate box belongs to a cross-currency transfer and nothing else, and
+       it is unhidden here rather than in the template so that a browser with
+       no JavaScript never sees a control that would do nothing for it. */
+    if (rateField) {
+      rateField.hidden = !crossCurrency;
+      if (crossCurrency) {
+        if (rateFrom) rateFrom.textContent = currency.value.toUpperCase();
+        if (rateTo) rateTo.textContent = code;
+      }
     }
 
     if (crossCurrency) suggestArriving(code);
@@ -462,4 +566,5 @@
   if (checkedNow) applyMerchantDefaults(checkedNow);
   syncDirection();
   syncFx(false);
+  syncBaseCurrencyFields();
 })();
