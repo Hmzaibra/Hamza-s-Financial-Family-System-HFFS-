@@ -20,7 +20,7 @@ python verify_phase0.py && python verify_auth.py && python verify_phase1.py && \
   python verify_receipts.py && python verify_limits.py && python verify_myaccounts.py
 ```
 
-623 checks at time of writing. A failing check is a real regression or a rule that
+648 checks at time of writing. A failing check is a real regression or a rule that
 changed on purpose — if the latter, update the check *and* say so, never delete it.
 
 Several are *source* checks rather than behavioural ones: no `date.today()` in

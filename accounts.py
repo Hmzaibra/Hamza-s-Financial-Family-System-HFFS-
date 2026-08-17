@@ -20,7 +20,7 @@ and the one a statement answers.
 from __future__ import annotations
 
 from db import base_currency, execute, query, query_one, utc_now
-from money import convert_to_base
+from money import convert_to_base, format_minor
 
 import balances as bal
 
@@ -202,6 +202,91 @@ def month_here(account_id: int, day, vis_sql: str, vis_params: list) -> dict:
             "top": top, "currency": base}
 
 
+def reconcile(account) -> dict:
+    """Every movement that made this balance what it is, opening to today.
+
+    This exists because the summary screen showed "spent 50, came in 6,040" next
+    to a balance of 5,387 and left a reader to work out the 603 for themselves —
+    which they cannot, because the two lines that close the gap were not on the
+    screen at all. An opening balance of −3 and a 600 transfer out are both real
+    and both invisible, and three numbers that refuse to add up are worse than
+    one number on its own.
+
+    Two windows were being compared as well. The month card is *this month*; the
+    balance is *all time*. This is all time, so it lands exactly on the balance
+    and can be read as a sum rather than as a coincidence.
+
+    Transfers get their own two lines rather than being folded into either side.
+    Moving your own money is neither spending nor income — the whole reason it is
+    excluded from both figures — but it is unarguably why the balance moved.
+    """
+    settlement = settles_to(account["id"])
+    legs = set(_leg_ids(settlement))
+    marks = ",".join("?" for _ in legs)
+    base = base_currency()
+
+    settlement_row = query_one(
+        "SELECT id, name, currency, "
+        "       (SELECT COALESCE(SUM(opening_balance_minor), 0) FROM accounts "
+        "         WHERE COALESCE(parent_account_id, id) = ?) AS opening "
+        "  FROM accounts WHERE id = ?",
+        (settlement, settlement),
+    )
+    code = settlement_row["currency"]
+
+    rows = query(
+        f"SELECT * FROM transactions t "
+        f" WHERE t.account_id IN ({marks}) OR t.counter_account_id IN ({marks})",
+        [*legs, *legs],
+    )
+
+    lines = {"income": 0, "spend": 0, "transfer_out": 0, "transfer_in": 0}
+    unconverted = 0
+
+    for row in rows:
+        # Deliberately the same conversion `_effect()` makes, so a leg this can
+        # express and the balance cannot — or the reverse — is impossible.
+        def amount(minor, currency):
+            nonlocal unconverted
+            if currency == code:
+                return minor
+            if code == base and row["fx_rate_to_base"]:
+                return convert_to_base(minor, row["fx_rate_to_base"])
+            unconverted += 1
+            return 0
+
+        if row["account_id"] in legs:
+            if row["direction"] == "income":
+                lines["income"] += amount(row["amount_minor"], row["currency"])
+            elif row["direction"] == "spend":
+                lines["spend"] += amount(row["amount_minor"], row["currency"])
+            else:
+                lines["transfer_out"] += amount(row["amount_minor"], row["currency"])
+
+        if row["direction"] == "transfer" and row["counter_account_id"] in legs:
+            lines["transfer_in"] += amount(
+                row["counter_amount_minor"], row["counter_currency"])
+
+    total = (settlement_row["opening"] + lines["income"] - lines["spend"]
+             - lines["transfer_out"] + lines["transfer_in"])
+
+    standing = bal.account_balances().get(settlement)
+
+    return {
+        "settlement": settlement_row,
+        "currency": code,
+        "opening": settlement_row["opening"],
+        **lines,
+        "total": total,
+        "unconverted": unconverted,
+        # The column is only worth printing as a sum if it *is* the balance.
+        # If this is ever False the screen has a bug, and the template says so
+        # rather than showing a total that quietly disagrees with the one at the
+        # top of the same page.
+        "agrees": standing is None or total == standing.minor,
+    }
+
+
 def wheels(account, day) -> list[dict]:
     """The ceilings on this account, as fractions of themselves.
 
@@ -370,17 +455,105 @@ def history(account, user, vis_sql: str, vis_params: list, limit: int = 20) -> d
 
         balance -= delta
 
+    window = entries[:limit]
     return {
         "settlement": settlement_row,
         "currency": code,
         "balance_now": balance_now,
         "approximate": approximate,
-        "entries": entries[:limit],
+        "entries": window,
+        "series": _series(window, code),
         "total": len(entries),
         "more": max(0, len(entries) - limit),
         # Entries older than the window that nobody may see would otherwise
         # vanish without trace; the count below the last row says so.
         "hidden_after": sum(1 for row in rows if row["id"] not in visible_ids),
+    }
+
+
+# The chart's coordinate space. Fixed and unitless — the SVG is scaled by CSS to
+# whatever the screen gives it, so nothing here has to know about pixels.
+CHART_W = 300
+CHART_H = 90
+CHART_PAD = 6
+
+
+def _series(window: list[dict], code: str) -> dict:
+    """The same entries as a left-to-right line, oldest first.
+
+    The list reads newest-first, because "what did I just spend" is the question
+    you have at the top of a page. A graph reads the other way, because time
+    goes left to right and always has. Same numbers, reversed once, here — so
+    the two can never drift apart by being built from different queries.
+
+    Points are laid out in a fixed unitless box that CSS stretches. Everything
+    the browser needs is computed here rather than in the script, so the chart
+    is fully drawn in the HTML and the slider only ever *moves a marker along
+    it* — which is what keeps the screen honest with JavaScript off.
+    """
+    oldest_first = list(reversed(window))
+    if not oldest_first:
+        return {"points": [], "path": "", "area": "", "count": 0}
+
+    # The balance *before* the oldest entry shown, so the line starts where the
+    # window starts rather than at its first movement.
+    start = oldest_first[0]["balance_after"] - oldest_first[0]["delta"]
+    values = [start] + [e["balance_after"] for e in oldest_first]
+
+    low, high = min(values), max(values)
+    span = high - low
+    if span == 0:
+        # A flat line belongs in the middle, not welded to an edge.
+        low, high, span = low - 1, high + 1, 2
+
+    inner_h = CHART_H - 2 * CHART_PAD
+    inner_w = CHART_W - 2 * CHART_PAD
+    step = inner_w / max(1, len(values) - 1)
+
+    def y_of(value: int) -> float:
+        # SVG y grows downward; money grows upward.
+        return round(CHART_PAD + inner_h - (value - low) * inner_h / span, 2)
+
+    coords = [(round(CHART_PAD + i * step, 2), y_of(v)) for i, v in enumerate(values)]
+
+    points = []
+    for i, entry in enumerate(oldest_first):
+        x, y = coords[i + 1]
+        row = entry["row"]
+        points.append({
+            "x": x, "y": y,
+            "balance": entry["balance_after"],
+            "delta": entry["delta"],
+            # Formatted here, not in the browser. money.py owns the exponent
+            # table and every rounding decision in this app, and JavaScript has
+            # one number type — re-implementing it there is how a screen starts
+            # disagreeing with the database it is reading.
+            "balance_text": format_minor(entry["balance_after"], code),
+            "delta_text": ("+" if entry["delta"] > 0 else
+                           "−" if entry["delta"] < 0 else "")
+                          + format_minor(abs(entry["delta"]), code),
+            "date": row["occurred_on"],
+            "label": (f"{row['account_name']} → {row['counter_account_name']}"
+                      if row["direction"] == "transfer"
+                      else (row["merchant_name"] or row["category_name"]
+                            or row["account_name"] or "Entry")),
+            "id": row["id"],
+        })
+
+    line = " ".join(f"{x},{y}" for x, y in coords)
+    return {
+        "points": points,
+        "path": line,
+        # Closed back along the floor, so the line can carry a soft fill under
+        # it without a second set of coordinates.
+        "area": f"{coords[0][0]},{CHART_H - CHART_PAD} {line} "
+                f"{coords[-1][0]},{CHART_H - CHART_PAD}",
+        "count": len(points),
+        "width": CHART_W,
+        "height": CHART_H,
+        "start": start,
+        "low": low,
+        "high": high,
     }
 
 

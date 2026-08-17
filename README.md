@@ -63,7 +63,7 @@ python verify_limits.py     # period maths, scopes, who is told, and how often
 python verify_myaccounts.py # ownership, the account summary, the balance walk
 ```
 
-623 checks. They build their own throwaway databases and touch nothing in
+648 checks. They build their own throwaway databases and touch nothing in
 `app.db` or `uploads/`.
 
 ## Layout
@@ -476,6 +476,22 @@ A ring is a circle with a dashed stroke whose first dash is the filled arc, so
 the only thing that varies is one length — and `stroke-dasharray` is an SVG
 presentation attribute, which survives a CSP with no `unsafe-inline` where an
 inline style would silently not render.
+
+### How a balance adds up
+
+The summary carries the sum, all time, ending on the balance at the top of the
+page: opening balance, income, spending, and transfers in and out on their own
+two lines.
+
+It exists because "spent 50, came in 6,040" sat next to a balance of 5,387 and
+there was no way to reconcile them from the screen. Two of the lines that close
+that gap — an opening balance of −3 and a 600 transfer out — were not on it at
+all, and the two figures that were are *this month* while the balance is *all
+time*. Three numbers that refuse to add up are worse than one number alone.
+
+Transfers get their own lines rather than being folded into either side. Moving
+your own money is neither spending nor income, which is exactly why both figures
+exclude it, and it is unarguably why the balance moved.
 
 ### Balance history
 

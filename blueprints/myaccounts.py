@@ -103,6 +103,9 @@ def summary(account_id: int):
         balance=money,
         overdrawn=bal.is_overdrawn(account, money),
         month=acct.month_here(account_id, today, vis_sql, vis_params),
+        # All time, and it lands on the balance above — the month figures are a
+        # different window and were being read as if they should reconcile.
+        reconcile=acct.reconcile(account),
         wheels=acct.wheels(account, today),
         owners=acct.owners_of(account_id),
         month_label=today.strftime("%B %Y"),

@@ -84,8 +84,86 @@
       </div>
     {% endif %}
 
+    {# ---- how the balance got here ---------------------------------------
+       The month card below shows what was spent and what came in *this month*,
+       and the balance above is *all time*. Two windows, three numbers, and no
+       way to reconcile them from the screen — which is exactly what happened:
+       "spent 50, came in 6,040" next to a balance of 5,387, with an opening
+       balance of −3 and a 600 transfer out nowhere to be seen.
+
+       So this is the sum, all time, ending on the number at the top of the
+       page. Transfers get their own lines rather than being folded into either
+       side: moving your own money is neither spending nor income, which is why
+       both figures exclude it, and it is unarguably why the balance moved. #}
+    <div class="card card--pad">
+      <p class="section__title">How this balance adds up</p>
+      <ul class="ledger">
+        <li class="ledger__row">
+          <span class="ledger__label">Opened with</span>
+          <span class="ledger__value num">{{ reconcile.opening|money(reconcile.currency) }}</span>
+        </li>
+        {% if reconcile.income %}
+          <li class="ledger__row">
+            <span class="ledger__label">Income</span>
+            <span class="ledger__value num amt amt--income">
+              +{{ reconcile.income|money(reconcile.currency) }}
+            </span>
+          </li>
+        {% endif %}
+        {% if reconcile.spend %}
+          <li class="ledger__row">
+            <span class="ledger__label">Spending</span>
+            <span class="ledger__value num amt amt--spend">
+              −{{ reconcile.spend|money(reconcile.currency) }}
+            </span>
+          </li>
+        {% endif %}
+        {% if reconcile.transfer_out %}
+          <li class="ledger__row">
+            <span class="ledger__label">Moved out to other accounts</span>
+            <span class="ledger__value num amt amt--spend">
+              −{{ reconcile.transfer_out|money(reconcile.currency) }}
+            </span>
+          </li>
+        {% endif %}
+        {% if reconcile.transfer_in %}
+          <li class="ledger__row">
+            <span class="ledger__label">Moved in from other accounts</span>
+            <span class="ledger__value num amt amt--income">
+              +{{ reconcile.transfer_in|money(reconcile.currency) }}
+            </span>
+          </li>
+        {% endif %}
+        <li class="ledger__row ledger__row--total">
+          <span class="ledger__label">Balance now</span>
+          <span class="ledger__value num {% if reconcile.total < 0 %}bal--over{% endif %}">
+            {{ reconcile.total|money(reconcile.currency) }} {{ reconcile.currency }}
+          </span>
+        </li>
+      </ul>
+
+      {% if reconcile.unconverted %}
+        <p class="hint">
+          {{ reconcile.unconverted }} entr{{ 'y' if reconcile.unconverted == 1 else 'ies' }}
+          in another currency {{ 'is' if reconcile.unconverted == 1 else 'are' }} left out —
+          no rate was captured when {{ 'it was' if reconcile.unconverted == 1 else 'they were' }}
+          logged, so the balance above is approximate.
+        </p>
+      {% elif not reconcile.agrees %}
+        {# Should be unreachable. Saying so beats printing a column that quietly
+           disagrees with the figure at the top of the same page. #}
+        <p class="hint">
+          These lines do not add up to the balance shown above. That is a bug —
+          the balance is the number to trust.
+        </p>
+      {% endif %}
+    </div>
+
     <div class="card card--pad">
       <p class="section__title">{{ month_label }}</p>
+      <p class="hint">
+        This month only. The sum above is every entry since the account was opened.
+      </p>
       <ul class="figures">
         <li class="figures__item">
           <span class="figures__label">Spent</span>

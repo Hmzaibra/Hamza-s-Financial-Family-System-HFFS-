@@ -1212,9 +1212,18 @@ table td.num,
   color: var(--warn);
 }
 
-/* Direction painted on the amount. Spend stays ink rather than red — most rows
-   in this app are spending, and colouring the ordinary case leaves nothing left
-   to mean "look at this". */
+/* Direction painted on the amount.
+   
+   Spend used to stay ink, on the argument that most rows are spending and
+   colouring the ordinary case leaves nothing to mean "look at this". Asked for
+   in red, and the argument was wrong anyway: money leaving is the thing this
+   app is for, and a column where every sign has a colour scans faster than one
+   where you read the minus. --over is reused rather than a new red, so an
+   overdrawn balance and a payment are the same red. */
+.amt--spend {
+  color: var(--over);
+}
+
 .amt--income {
   color: var(--accent);
 }
@@ -1638,4 +1647,156 @@ table td.num,
   margin: 14px 0 0;
   padding: 0;
   list-style: none;
+}
+
+/* ---- a column of figures that adds up ---------------------------------
+   Opening balance, each kind of movement, and the total. The point is that it
+   reads as a sum, so the label and the number are the only two things on a
+   row and the total is ruled off from the rest. */
+
+.ledger {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ledger__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+}
+
+.ledger__label {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.ledger__value {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ledger__row--total {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.ledger__row--total .ledger__label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ledger__row--total .ledger__value {
+  font-size: 1.05rem;
+  font-weight: 680;
+}
+
+/* ---- the balance timeline ---------------------------------------------
+   The chart is server-drawn; the slider moves a marker along it. Everything
+   here has to look deliberate with the slider disabled, because that is what
+   a browser with JavaScript off gets. */
+
+.timeline__chart {
+  display: block;
+  width: 100%;
+  height: 120px;
+  overflow: visible;
+}
+
+.timeline__area {
+  fill: var(--accent-soft);
+}
+
+.timeline__line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  /* The viewBox is stretched by preserveAspectRatio="none", which would stretch
+     the stroke with it. This keeps the line an even weight at any width. */
+  vector-effect: non-scaling-stroke;
+}
+
+.timeline__rule {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.timeline__dot {
+  fill: var(--accent);
+  stroke: var(--card);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.timeline__scale {
+  display: flex;
+  justify-content: space-between;
+  margin: 6px 0 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.timeline__slider {
+  width: 100%;
+  margin: 10px 0 4px;
+  accent-color: var(--accent);
+  /* 44px of thumb-reachable track. A range input's default height is nowhere
+     near a tap target on a phone. */
+  height: 32px;
+}
+
+.timeline__slider:disabled {
+  opacity: 0.45;
+}
+
+.timeline__readout {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 0;
+}
+
+.timeline__when {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.timeline__what {
+  font-weight: 600;
+}
+
+.timeline__figures {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.timeline__balance {
+  margin-left: auto;
+  font-size: 1.05rem;
+  font-weight: 660;
+}
+
+/* Swapped once the script has enabled the slider, so the sentence matches
+   which of the two states the person is actually looking at. */
+.timeline .timeline__fallback::before {
+  content: "Every entry is listed below, newest first.";
+}
+
+.timeline .timeline__fallback {
+  font-size: 0;
+}
+
+.timeline--live .timeline__fallback::before {
+  content: "Drag to walk back through the entries.";
+}
+
+/* The row the slider is sitting on. */
+.is-current .list__item {
+  background: var(--accent-soft);
 }

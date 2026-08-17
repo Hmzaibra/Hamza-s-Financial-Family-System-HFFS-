@@ -305,6 +305,70 @@ def main() -> int:
         check("the walk still ends on the opening balance",
               more["entries"][-1]["balance_after"] - more["entries"][-1]["delta"] == 100000)
 
+    print("\nthe balance shows its working")
+    # The exact shape that produced the complaint: an opening balance below
+    # zero, income in a foreign currency, a transfer out, and one spend — three
+    # numbers on screen that a reader could not reconcile because the two lines
+    # closing the gap were not on the screen at all.
+    with app.app_context(), app.test_request_context():
+        account = sql("SELECT * FROM accounts WHERE id = 1")[0]
+        r = acct.reconcile(account)
+
+        check("the column ends on the balance, not near it",
+              r["total"] == bal.account_balances()[1].minor)
+        check("and it knows that it does", r["agrees"])
+        check("the opening balance is a line rather than an assumption",
+              r["opening"] == 100000)
+        check("income is its own line", r["income"] > 0)
+        check("spending is its own line", r["spend"] > 0)
+        check("a transfer out is neither of those and gets its own line",
+              r["transfer_out"] > 0)
+        check("as does a transfer in, at the other end",
+              acct.reconcile(sql("SELECT * FROM accounts WHERE id = 4")[0])["transfer_in"] > 0)
+
+        # Arithmetic, not a stored total: the lines have to *be* the sum.
+        check("the lines are the sum, so nothing can be added without showing",
+              r["opening"] + r["income"] - r["spend"]
+              - r["transfer_out"] + r["transfer_in"] == r["total"])
+
+        # A card settles to its parent, so both must reconcile identically —
+        # the card has no money of its own to reconcile.
+        check("a card reconciles to the account behind it",
+              acct.reconcile(sql("SELECT * FROM accounts WHERE id = 3")[0])["total"]
+              == r["total"])
+
+    print("\na foreign leg with no rate is left out and said so, never guessed")
+    odd = txn(occurred_on="2026-08-08", direction="spend", amount_minor=500,
+              currency="USD", fx_rate_to_base=None, account_id=1)
+    with app.app_context(), app.test_request_context():
+        account = sql("SELECT * FROM accounts WHERE id = 1")[0]
+        r = acct.reconcile(account)
+        check("it is counted as unconvertible", r["unconverted"] == 1)
+        check("and contributes nothing rather than a made-up number",
+              r["total"] == bal.account_balances()[1].minor)
+    run("DELETE FROM transactions WHERE id = ?", (odd,))
+
+    with app.test_client() as c:
+        login(c)
+        page = c.get("/accounts/1").data
+        check("the summary prints the sum", b"How this balance adds up" in page)
+        check("with the opening balance on it", b"Opened with" in page)
+        check("and transfers named as movement rather than as spending",
+              b"Moved out to other accounts" in page)
+        check("the month card says it is only the month, since the sum is not",
+              b"This month only" in page)
+
+    print("\nmoney leaving is red")
+    css = Path("static/css/app.css").read_text(encoding="utf-8")
+    check("spend has a colour of its own", ".amt--spend" in css)
+    check("and it is the same red an overdrawn balance uses, not a second one",
+          "--over" in css.split(".amt--spend")[1].split("}")[0])
+    with app.test_client() as c:
+        login(c)
+        check("the entry list paints it", b"amt--spend" in c.get("/transactions").data)
+        check("so does the balance history",
+              b"amt--spend" in c.get("/accounts/1/history").data)
+
     # --------------------------------------------------------------- wheels
 
     print("\nlimit wheels")
@@ -368,7 +432,24 @@ def main() -> int:
 
         page = c.get("/accounts/1/history").data
         check("the history draws", b"Balance history" in page)
-        check("saying which way it reads", b"Newest first" in page)
+        check("with a graph of the balance across the window", b"timeline__line" in page)
+        check("and a slider to walk along it", b'id="timeline-slider"' in page)
+        check("which ships disabled, so it is the script that makes it work",
+              b"timeline-slider" in page and b"disabled" in page)
+        # Parsed, not grepped. The attribute shipped double-quoted once, which
+        # truncated the JSON at the first inner quote — every byte the checks
+        # looked for was present and the slider did nothing at all.
+        import json
+        blob = re.search(rb"data-points='([^']*)'", page)
+        check("the points survive being put in an attribute", blob is not None)
+        series = json.loads(blob.group(1).decode().replace("\\u0027", "'")) if blob else []
+        check("and parse back into one point per row the list shows",
+              len(series) == page.count(b"data-entry="))
+        check("carrying their own formatted money — money.py owns that, not a "
+              "second implementation in JavaScript",
+              all("balance_text" in p and "delta_text" in p for p in series))
+        check("and coordinates the marker can be moved to",
+              all(isinstance(p["x"], (int, float)) for p in series))
         check("and offers the next page as a link, not an infinite scroll",
               b"/accounts/1/history?show=40" in page and b"more" in page)
         check("which works", c.get("/accounts/1/history?show=40").status_code == 200)

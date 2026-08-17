@@ -511,3 +511,80 @@ have not run and the exact command. Three details in it are deliberate:
 
 A fresh install falls out of the same rule: nothing is applied, everything is
 outstanding, and the first page anyone sees tells them to migrate.
+
+---
+
+## Three more from using it
+
+### Three numbers that would not add up
+
+"Spent 50, came in 6,040" sat above a balance of 5,387, and the screen offered
+no way to get from one to the other. Both figures were right. So was the
+balance. Two things were missing and one was mislabelled:
+
+- an **opening balance of −3**, never shown anywhere;
+- a **600 transfer out**, excluded from both figures on purpose — moving your own
+  money is neither spending nor income — and therefore invisible;
+- and the two figures were **this month** while the balance was **all time**, a
+  distinction the screen never made.
+
+The fix is a sum, all time, ending on the balance: opened with, income,
+spending, moved out, moved in, balance. It is arithmetic rather than a stored
+total, so a line cannot be added without appearing, and `reconcile()` compares
+its own result against `balances.py` and the template says so if they ever
+disagree. The month card now says "this month only" out loud.
+
+Worth stating plainly: nothing was miscalculated. The screen was showing a
+person two of five terms and expecting them to trust the answer, which is a
+worse failure than an arithmetic bug because it looks like one.
+
+### Spending is red now
+
+It used to stay ink, on the argument that most rows are spending and colouring
+the ordinary case leaves nothing to mean "look at this". That argument was
+wrong. Money leaving is what this app is about, and a column where every sign
+carries a colour scans faster than one where you have to read the minus. It
+reuses `--over`, so an overdrawn balance and a payment are the same red rather
+than a second one nobody chose.
+
+### The balance history became a timeline
+
+A column of numbers answers "what was the balance after that one" and answers
+nothing at all about shape. So the window is now also a graph, with a slider
+that walks a marker along it and a readout of what each entry was.
+
+Every coordinate is computed in `accounts._series()`. The script moves a marker
+along a line that is already in the HTML and does nothing else — which is what
+keeps it honest with scripting off: the shape still draws, the list still reads,
+and the slider ships `disabled` so the script is what enables it rather than a
+dead control sitting there.
+
+Two details that are not stylistic:
+
+- **The money strings are rendered server-side onto each point.** Formatting in
+  the browser would be a second implementation of `money.py` — the exponent
+  table, the rounding, all of it — in a language with one number type. That is
+  how a screen starts disagreeing with the database it is reading.
+- **The chart reads oldest-first, the list newest-first.** Time goes left to
+  right; "what did I just spend" belongs at the top of a page. The series is the
+  list reversed once, server-side, so the two cannot be built from different
+  queries and drift.
+
+And one bug worth remembering, because every assertion passed while it was
+broken. The points ride in a `data-points` attribute, and it shipped
+double-quoted. Flask's `tojson` escapes `'` as `'` and leaves `"` raw —
+it is built for a single-quoted attribute — so the JSON was truncated at the
+first inner quote, `JSON.parse` threw, and the slider moved its thumb while
+changing nothing. Every byte the checks grepped for was present. The check now
+pulls the attribute out and parses it, and asserts one point per row the list
+renders.
+
+### Noticed, not fixed
+
+`Banque Misr` has an opening balance of −3.00, and migration `003` forbids a
+non-credit-card opening below zero. Both are true because the row predates the
+trigger: **003 added the rule and did not check the rows already there.** The
+account can be corrected in Setup → Accounts, which will now refuse to save it
+that way. Worth knowing as a general shape — a constraint introduced later only
+binds what happens next, and nothing in this project audits history when a rule
+arrives.

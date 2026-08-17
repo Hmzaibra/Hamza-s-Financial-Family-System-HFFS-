@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ account.name }} balance history — Expenses{% endblock %}
+{% block head_scripts %}
+  <script src="{{ url_for('static', filename='js/balance-timeline.js') }}" defer></script>
+{% endblock %}
 
 {% block content %}
   <div class="page-head">
@@ -32,10 +35,76 @@
         move the balance by an amount this app declines to guess at.
       </p>
     {% endif %}
-    <p class="hint">
-      Newest first. Each row is the balance after that entry.
-    </p>
   </div>
+
+  {# ---- the timeline ------------------------------------------------------
+     The graph is drawn entirely here: every coordinate comes from
+     accounts._series(), and balance-timeline.js only slides a marker along a
+     line that already exists. With scripting off the shape of the balance is
+     still on screen and the list below still answers row by row — the slider
+     is simply inert, which is why it ships disabled and the script enables it.
+
+     Time runs left to right, so this reads oldest-first while the list reads
+     newest-first. Same numbers, reversed once, server-side. #}
+  {% if history.series.count %}
+    {# Single quotes around the JSON, and that is not a style choice. Flask's
+       `tojson` escapes ' as \u0027 and leaves " raw, because it is built for
+       exactly this: a double-quoted attribute is truncated at the first inner
+       quote, JSON.parse throws, and the slider silently does nothing while
+       looking perfectly fine. #}
+    <div class="card card--pad timeline" id="timeline"
+         data-points='{{ history.series.points|tojson }}'>
+      <svg class="timeline__chart" viewBox="0 0 {{ history.series.width }} {{ history.series.height }}"
+           preserveAspectRatio="none" role="img"
+           aria-label="Balance across the {{ history.series.count }} entries below,
+                       from {{ history.series.low|money(history.currency) }}
+                       to {{ history.series.high|money(history.currency) }} {{ history.currency }}">
+        <polygon class="timeline__area" points="{{ history.series.area }}" />
+        <polyline class="timeline__line" points="{{ history.series.path }}" />
+        {# Both start at the newest point, which is where the slider opens. #}
+        <line class="timeline__rule" x1="{{ history.series.points[-1].x }}" y1="0"
+              x2="{{ history.series.points[-1].x }}" y2="{{ history.series.height }}"
+              id="timeline-rule" />
+        <circle class="timeline__dot" r="4" id="timeline-dot"
+                cx="{{ history.series.points[-1].x }}" cy="{{ history.series.points[-1].y }}" />
+      </svg>
+
+      <p class="timeline__scale num">
+        <span>{{ history.series.low|money(history.currency) }}</span>
+        <span>{{ history.series.high|money(history.currency) }}</span>
+      </p>
+
+      <label class="visually-hidden" for="timeline-slider">
+        Scrub through this account&rsquo;s entries
+      </label>
+      <input class="timeline__slider" type="range" id="timeline-slider"
+             min="0" max="{{ history.series.count - 1 }}"
+             value="{{ history.series.count - 1 }}" step="1" disabled />
+
+      {# Pre-filled with the newest entry, so it says something true before the
+         script runs and something true if the script never runs. #}
+      <p class="timeline__readout" id="timeline-readout" aria-live="polite">
+        <span class="timeline__when num" id="timeline-date">
+          {{ history.series.points[-1].date }}
+        </span>
+        <span class="timeline__what" id="timeline-label">
+          {{ history.series.points[-1].label }}
+        </span>
+        <span class="timeline__figures num">
+          <span class="amt amt--{{ 'income' if history.series.points[-1].delta > 0 else 'spend' }}"
+                id="timeline-delta">{{ history.series.points[-1].delta_text }}</span>
+          <span class="timeline__balance" id="timeline-balance">
+            {{ history.series.points[-1].balance_text }}
+          </span>
+        </span>
+      </p>
+
+      <p class="hint timeline__fallback">
+        Drag to walk back through the entries. Every one of them is listed below,
+        newest first.
+      </p>
+    </div>
+  {% endif %}
 
   <div class="card">
     {% if history.entries %}
@@ -57,7 +126,7 @@
             </li>
           {% endif %}
 
-          <li>
+          <li data-entry="{{ e.row.id }}">
             {% set t = e.row %}
             <a class="list__item" href="{{ url_for('ledger.edit', txn_id=t.id) }}">
               <span class="list__main">

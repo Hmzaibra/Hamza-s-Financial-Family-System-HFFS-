@@ -240,6 +240,14 @@ try:
             page.wait_for_timeout(400)
             page.screenshot(path=OUT / f"balance-history-{scheme}.png", full_page=True)
 
+            # Dragged back a few entries, which is the state the slider exists
+            # for and the one a screenshot of the default would never show.
+            page.eval_on_selector(
+                "#timeline-slider",
+                "el => { el.value = '3'; el.dispatchEvent(new Event('input')); }")
+            page.wait_for_timeout(300)
+            page.screenshot(path=OUT / f"balance-scrubbed-{scheme}.png", full_page=True)
+
             # The card, whose wheels are the bank's own ceilings.
             page.goto(f"{BASE}/accounts/4")
             page.wait_for_load_state("networkidle")
