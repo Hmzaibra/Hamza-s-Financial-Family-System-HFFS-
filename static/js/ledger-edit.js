@@ -1,19 +1,26 @@
 /* Edit-screen enhancement.
  *
- * The edit form works without this file, the same way the entry form does. Two
- * things here, both of them removals of confusion rather than of rules:
+ * The form works without this file. Every group it toggles is already hidden or
+ * shown server-side from the stored row, which is the state that matters — you
+ * open a transfer and the transfer fields are there, you open a spend and they
+ * are not. This only keeps up when the type or the currency is changed while
+ * the page is open, which the server cannot see until you save.
  *
- *   - a transfer has no merchant, so the merchant field goes away when the type
- *     is switched to one. The server has always nulled it (transactions._prepare
- *     never reads a merchant on a transfer), and the template already hides it
- *     server-side for a transfer being opened — this only covers the case of
- *     changing the type while the page is open.
+ * Three jobs, all of them removals of things that do not apply:
  *
- *   - changing the destination account to one in a different currency clears the
- *     arriving amount. Left behind, that number is about the currency it is no
- *     longer in, and it is exactly how 10.00 EGP once arrived as 10.00 EUR.
- *     transactions._check_transfer_rate() refuses that now, which is the real
- *     guard; this stops it being typed in the first place.
+ *   - a transfer has no merchant and no in-person/online, because it has no
+ *     counterparty. transactions._prepare() has always dropped both on one, so
+ *     offering them was offering controls that quietly did nothing.
+ *   - anything that is not a transfer has no "into" account and no arriving
+ *     amount.
+ *   - an entry in the household's own currency has no rate to it. The box is
+ *     not empty there, it is meaningless.
+ *
+ * And one that is not cosmetic: changing the destination to an account in a
+ * different currency clears the arriving amount. Left behind, that number is
+ * about the currency it is no longer in — which is how 10.00 EGP once arrived
+ * as 10.00 EUR. transactions._check_transfer_rate() refuses that now, which is
+ * the real guard; this stops it being typed in the first place.
  */
 
 (function () {
@@ -25,24 +32,46 @@
   var qs = function (id) { return document.getElementById(id); };
 
   var direction = qs("direction");
-  var merchantField = qs("merchant-field");
-  var counterField = qs("counter-amount-field");
+  var currency = qs("currency");
   var counterAccount = qs("counter_account_id");
   var counterAmount = qs("counter_amount");
-  var currency = qs("currency");
+  var merchant = qs("merchant_id");
+
+  var base = (document.body.dataset.baseCurrency || "EGP").toUpperCase();
 
   function isTransfer() {
     return direction && direction.value === "transfer";
   }
 
-  function syncMerchant() {
-    if (!merchantField) return;
-    merchantField.hidden = isTransfer();
+  /* Groups declare when they belong rather than the script holding a list of
+     ids: adding a field later means putting it in the right box, not editing
+     this file. */
+  function toggle(id, shown) {
+    var el = qs(id);
+    if (el) el.hidden = !shown;
+  }
+
+  function toggleAll(attr, shown) {
+    var els = form.querySelectorAll("[" + attr + "]");
+    for (var i = 0; i < els.length; i++) els[i].hidden = !shown;
+  }
+
+  function syncDirection() {
+    var transfer = isTransfer();
+    toggle("transfer-fields", transfer);
+    toggle("party-fields", !transfer);
+    toggleAll("data-when-transfer", transfer);
+    toggleAll("data-when-not-transfer", !transfer);
+
     /* Cleared as well as hidden. A hidden <select> still posts its value, and
        while the server drops it either way, leaving it set means switching back
        to a spend silently re-selects a merchant nobody chose on this screen. */
-    var picker = qs("merchant_id");
-    if (picker && isTransfer()) picker.value = "";
+    if (transfer && merchant) merchant.value = "";
+  }
+
+  function syncCurrency() {
+    if (!currency) return;
+    toggle("fx-field", currency.value.toUpperCase() !== base);
   }
 
   var lastIntoCode = null;
@@ -53,10 +82,10 @@
     var chosen = counterAccount.options[counterAccount.selectedIndex];
     var code = (chosen && chosen.dataset.currency) || null;
 
-    if (counterField) {
-      counterField.hidden =
-        !isTransfer() || !code || code === currency.value.toUpperCase();
-    }
+    // Same currency both ends: the server copies the amount across rather than
+    // asking twice, so the box is not a question.
+    toggle("counter-amount-field",
+           isTransfer() && !!code && code !== currency.value.toUpperCase());
 
     if (counterAmount && lastIntoCode !== null && code !== lastIntoCode) {
       counterAmount.value = "";
@@ -65,10 +94,12 @@
   }
 
   form.addEventListener("change", function (e) {
-    if (e.target.id === "direction") { syncMerchant(); syncCounter(); }
-    if (e.target.id === "counter_account_id" || e.target.id === "currency") syncCounter();
+    if (e.target.id === "direction") { syncDirection(); syncCounter(); }
+    if (e.target.id === "currency") { syncCurrency(); syncCounter(); }
+    if (e.target.id === "counter_account_id") syncCounter();
   });
 
-  syncMerchant();
+  syncDirection();
+  syncCurrency();
   syncCounter();
 })();

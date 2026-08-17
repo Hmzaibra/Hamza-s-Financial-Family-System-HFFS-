@@ -465,6 +465,75 @@ def main() -> int:
         txns.create_transaction(user, {**move, "amount": "10", "counter_amount": "10"})
         check("with no cached rate it declines to judge rather than inventing one", True)
 
+    print("\nthe confirmation gets out of the way")
+    with app.test_client() as c:
+        login(c)
+        page = c.get("/").data
+        made = txns_id = None
+        r = c.post("/", data={
+            "_csrf": token(page), "amount": "12", "direction": "spend",
+            "account_id": "1", "currency": "EGP", "occurred_on": "2026-08-16"})
+        saved = r.headers["Location"].split("saved=")[1]
+        page = c.get(f"/?saved={saved}").data
+
+        check("the toast appears after a save", b'id="toast"' in page)
+        check("with Undo on it", b"Undo" in page)
+        check("and a way to dismiss it that needs no JavaScript",
+              b'class="toast__close"' in page)
+        check("which is a plain link back to a clean form",
+              b'class="toast__close" href="/"' in page)
+        check("so dismissing it leaves no toast behind",
+              b'id="toast"' not in c.get("/").data)
+
+        js = Path("static/js/entry.js").read_text(encoding="utf-8")
+        check("and it retires itself rather than sitting over the screen",
+              "toast--gone" in js)
+        check("after seconds rather than minutes", "12000" in js)
+        check("unless you are reaching for it", "pointerenter" in js)
+        css = Path("static/css/app.css").read_text(encoding="utf-8")
+        check("the exit is animated, and skipped for anyone who asked it to be",
+              ".toast--gone" in css and "prefers-reduced-motion" in css)
+
+        # It leaving is the shortcut expiring, not the entry setting.
+        page = c.get(f"/?saved={saved}").data
+        c.post(f"/entry/{saved}/undo", data={"_csrf": token(page)})
+        check("Undo still removes the entry once the toast has been dismissed",
+              dbmod.query_one("SELECT COUNT(*) AS n FROM transactions "
+                              "WHERE id = ?", (saved,))["n"] == 0)
+
+    print("\nthe three directions are three colours")
+    css = Path("static/css/app.css").read_text(encoding="utf-8")
+    shades = {d: css.split(f".amt--{d} {{")[1].split("}")[0] for d in
+              ("spend", "income", "transfer")}
+    check("spend, income and transfer each have one", len(shades) == 3)
+    check("and no two of them are the same",
+          len({v.strip() for v in shades.values()}) == 3)
+    check("transfer is a colour rather than grey — grey read as disabled once "
+          "spend went red", "--text-muted" not in shades["transfer"])
+    check("each is a palette variable, so dark mode gets its own",
+          all("var(--" in v for v in shades.values()))
+    check("and the palette defines the new one in both schemes",
+          css.count("--move:") == 2)
+
+    # One of each, so the check is about the list rather than about whatever
+    # the fixture happened to leave behind.
+    user = {"id": 1, "timezone": "Africa/Cairo", "default_shared": 1, "role": "admin"}
+    with app.app_context(), app.test_request_context():
+        txns.create_transaction(user, {"amount": "5", "direction": "spend",
+                                       "account_id": "1", "occurred_on": "2026-08-16"})
+        txns.create_transaction(user, {"amount": "6", "direction": "income",
+                                       "account_id": "1", "occurred_on": "2026-08-16"})
+        txns.create_transaction(user, {"amount": "7", "direction": "transfer",
+                                       "account_id": "1", "counter_account_id": "4",
+                                       "occurred_on": "2026-08-16"})
+
+    with app.test_client() as c:
+        login(c)
+        page = c.get("/transactions?user_id=all").data
+        check("the entry list paints all three",
+              b"amt--spend" in page and b"amt--income" in page
+              and b"amt--transfer" in page)
+
     print()
     if failures:
         print(f"{len(failures)} check(s) failed:")

@@ -298,7 +298,15 @@
 </form>
 
 {% if toast %}
-  <div class="toast" role="status">
+  {# It sits over the bottom of the screen, so it has to leave on its own —
+     entry.js takes it away after a few seconds. The × is the same exit for a
+     browser with scripting off, and for anyone who wants it gone now: a plain
+     link back to this page without ?saved=, which is a fresh form.
+
+     Undo keeps working for ten minutes either way. The toast going is the
+     shortcut expiring, not the entry becoming permanent — and an entry can
+     always be edited or removed from Entries. #}
+  <div class="toast" role="status" id="toast">
     <div class="toast__text">
       <strong class="num">{{ toast.currency }} {{ toast.amount }}</strong>
       {% if toast.what %}<span>· {{ toast.what }}</span>{% endif %}
@@ -307,6 +315,12 @@
       {{ csrf_input() }}
       <button type="submit" class="toast__undo">Undo</button>
     </form>
+    <a class="toast__close" href="{{ url_for('entry.form') }}" aria-label="Dismiss">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18" />
+      </svg>
+    </a>
   </div>
 {% endif %}
 {% endblock %}

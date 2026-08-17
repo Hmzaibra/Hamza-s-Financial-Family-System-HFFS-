@@ -431,6 +431,33 @@
     });
   }
 
+  /* ---- the confirmation retires itself ---------------------------------
+     It is fixed to the bottom of the screen above the tab bar, so left alone
+     it sits on top of whatever is under it for as long as the page is open.
+
+     Twelve seconds: long enough to read the amount and reach Undo, short
+     enough that it is gone before it becomes furniture. Undo itself keeps
+     working for ten minutes — this only takes the shortcut off the screen, and
+     the × does the same thing immediately without needing this file. */
+
+  var toast = document.getElementById("toast");
+  if (toast) {
+    var leaving = window.setTimeout(function () {
+      toast.classList.add("toast--gone");
+      // Removed from the layout only once the transition has run, so it
+      // animates out rather than blinking.
+      window.setTimeout(function () { toast.hidden = true; }, 400);
+    }, 12000);
+
+    // Reaching for it means you want it, so it stops counting down.
+    toast.addEventListener("pointerenter", function () {
+      window.clearTimeout(leaving);
+    });
+    toast.addEventListener("focusin", function () {
+      window.clearTimeout(leaving);
+    });
+  }
+
   var checkedNow = checkedMerchant();
   if (checkedNow) applyMerchantDefaults(checkedNow);
   syncDirection();

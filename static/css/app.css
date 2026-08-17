@@ -37,6 +37,7 @@
   --muted: #62736f;
   --warn: #e0a03a;
   --over: #c0503c;
+  --move: #5d54a4;
 
   /* Semantic layer — components reference only these, so dark mode is one
      override block rather than a sweep through every rule. */
@@ -78,6 +79,7 @@
     --accent-soft: rgba(79, 165, 149, 0.14);
     --focus: #6fbdae;
     --warn: #e9b45b;
+    --move: #9b91e0;
     --over: #e0705a;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -18px rgba(0, 0, 0, 0.8);
@@ -1228,8 +1230,12 @@ table td.num,
   color: var(--accent);
 }
 
+/* Violet rather than grey. Grey said "disabled" once spend went red, and a
+   transfer is not a lesser event — it is a third kind, and the three are worth
+   telling apart at a glance. Deliberately nowhere near the teal of income or
+   the red of spending. */
 .amt--transfer {
-  color: var(--text-muted);
+  color: var(--move);
 }
 
 /* ------------------------------------------------- category share bars */
@@ -1799,4 +1805,62 @@ table td.num,
 /* The row the slider is sitting on. */
 .is-current .list__item {
   background: var(--accent-soft);
+}
+
+/* The confirmation's exit. It is fixed above the tab bar, so it has to go —
+   entry.js adds .toast--gone after twelve seconds and hides it once this has
+   run. The × is the same exit without JavaScript. */
+
+.toast {
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.toast--gone {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition: none;
+  }
+}
+
+.toast__close {
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  margin-right: -6px;
+  border-radius: 8px;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.toast__close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.toast__close svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* The amount on the edit screen. Not the till display's 44px — a correction is
+   a considered act on something that already exists, not a race — but it is
+   still the field the screen is about, and it should not look like the note. */
+
+.input--lead {
+  font-size: 1.25rem;
+  font-weight: 640;
+}
+
+/* The edit form is three short cards rather than one wall of twelve fields.
+   `.stack` already spaces them; this only keeps the heading of each from
+   sitting flush against the first label under it. */
+
+.card--pad .section__title {
+  margin-bottom: 12px;
 }

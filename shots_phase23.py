@@ -202,6 +202,12 @@ try:
             page.wait_for_timeout(500)
             page.screenshot(path=OUT / f"edit-gallery-{scheme}.png", full_page=True)
 
+            # A transfer being edited: different fields from a spend, which is
+            # the point of the regrouping.
+            page.goto(f"{BASE}/transactions")
+            page.wait_for_timeout(300)
+            page.screenshot(path=OUT / f"entries-colours-{scheme}.png")
+
             # The delete question, and the details drawer with the account box.
             page.goto(f"{BASE}/transactions")
             page.wait_for_timeout(300)

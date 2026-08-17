@@ -63,7 +63,7 @@ python verify_limits.py     # period maths, scopes, who is told, and how often
 python verify_myaccounts.py # ownership, the account summary, the balance walk
 ```
 
-648 checks. They build their own throwaway databases and touch nothing in
+667 checks. They build their own throwaway databases and touch nothing in
 `app.db` or `uploads/`.
 
 ## Layout

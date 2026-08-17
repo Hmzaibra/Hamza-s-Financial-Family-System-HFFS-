@@ -5,12 +5,16 @@
 {% endblock %}
 
 {% set is_transfer = values.get('direction') == 'transfer' %}
+{% set is_foreign = values.get('currency') and values.get('currency') != base %}
 
 {% macro selected(a, b) %}{% if a is not none and b is not none and a|string == b|string %}selected{% endif %}{% endmacro %}
 
 {% block content %}
   <div class="page-head">
-    <div><h1>Edit entry</h1></div>
+    <div>
+      <p class="eyebrow">Edit</p>
+      <h1>{{ values.get('occurred_on', '') }}</h1>
+    </div>
     <p class="sub num">#{{ txn.id }}</p>
   </div>
 
@@ -18,160 +22,199 @@
     <p class="flash flash--error" role="alert">{{ error.message }}</p>
   {% endif %}
 
-  {# A plain form, not the entry form. The till screen is optimised for speed on
-     something that does not exist yet; a correction is a considered act on
-     something that does, so every field is visible at once and nothing is
-     collapsed or auto-filled behind your back. It still goes through
-     transactions._prepare(), so the rules are identical. #}
-  <form method="post" class="card card--pad" id="edit-form"
+  {# Every field used to be on screen at once: twelve of them, three or four of
+     which are meaningless for whatever you are actually editing. A plain spend
+     was being asked "into account?", "amount that arrived?" and "rate → EGP?",
+     and a transfer was being offered a merchant it can never have.
+
+     So the fields that do not apply are gone rather than empty, and what
+     remains is grouped: the money, then what it was, then the notes on it.
+     Hidden server-side from the stored row — which is the state that matters
+     and the one that works with scripting off — and ledger-edit.js keeps up
+     when the type or the currency is changed on screen.
+
+     It is still one form and still one POST. Nothing here changes what gets
+     saved; transactions._prepare() is the same function the entry screen
+     uses. #}
+  <form method="post" class="stack" id="edit-form"
         action="{{ url_for('ledger.save', txn_id=txn.id) }}">
     {{ csrf_input() }}
 
-    <div class="grid-2">
-      <div class="field">
-        <label class="field__label" for="amount">Amount</label>
-        <input class="input num" id="amount" name="amount" type="text" inputmode="decimal"
-               value="{{ values.get('amount', '') }}" />
+    <div class="card card--pad">
+      <p class="section__title">Money</p>
+
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="amount">Amount</label>
+          <input class="input num input--lead" id="amount" name="amount" type="text"
+                 inputmode="decimal" value="{{ values.get('amount', '') }}" />
+        </div>
+        <div class="field">
+          <label class="field__label" for="currency">Currency</label>
+          <select class="input" id="currency" name="currency">
+            {% for code in ['EGP','EUR','USD','GBP','AED','SAR'] %}
+              <option value="{{ code }}" {% if values.get('currency') == code %}selected{% endif %}>{{ code }}</option>
+            {% endfor %}
+          </select>
+        </div>
       </div>
-      <div class="field">
-        <label class="field__label" for="currency">Currency</label>
-        <select class="input" id="currency" name="currency">
-          {% for code in ['EGP','EUR','USD','GBP','AED','SAR'] %}
-            <option value="{{ code }}" {% if values.get('currency') == code %}selected{% endif %}>{{ code }}</option>
-          {% endfor %}
-        </select>
+
+      {# Only when the entry is in something other than the household's own
+         currency. On a base-currency entry the box is not "empty", it is
+         meaningless — there is no rate from EGP to EGP. #}
+      <div class="field" id="fx-field" {% if not is_foreign %}hidden{% endif %}>
+        <label class="field__label" for="fx_rate_to_base">
+          Rate to {{ base }}
+        </label>
+        <input class="input num" id="fx_rate_to_base" name="fx_rate_to_base" type="text"
+               inputmode="decimal" value="{{ values.get('fx_rate_to_base') or '' }}" />
+        <p class="field__hint">
+          What one unit was worth on the day. It cannot be recovered later, which
+          is why it is stored with the entry rather than looked up.
+        </p>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="direction">Type</label>
+          <select class="input" id="direction" name="direction">
+            {% for d in ['spend','income','transfer'] %}
+              <option value="{{ d }}" {% if values.get('direction') == d %}selected{% endif %}>{{ d|title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label class="field__label" for="occurred_on">Date</label>
+          <input class="input num" id="occurred_on" name="occurred_on" type="date"
+                 value="{{ values.get('occurred_on', '') }}" />
+        </div>
       </div>
     </div>
 
-    <div class="grid-2">
-      <div class="field">
-        <label class="field__label" for="direction">Type</label>
-        <select class="input" id="direction" name="direction">
-          {% for d in ['spend','income','transfer'] %}
-            <option value="{{ d }}" {% if values.get('direction') == d %}selected{% endif %}>{{ d|title }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label class="field__label" for="occurred_on">Date</label>
-        <input class="input num" id="occurred_on" name="occurred_on" type="date"
-               value="{{ values.get('occurred_on', '') }}" />
-      </div>
-    </div>
+    <div class="card card--pad">
+      <p class="section__title">
+        <span data-when-transfer {% if not is_transfer %}hidden{% endif %}>Between</span>
+        <span data-when-not-transfer {% if is_transfer %}hidden{% endif %}>What it was</span>
+      </p>
 
-    {# A transfer moves money between two of your own accounts. There is no
-       counterparty to name, and _prepare() has always dropped the field on one
-       — so offering it here was a control that quietly did nothing.
-
-       Hidden server-side for a transfer being opened, which is the common case
-       and the one that works with JavaScript off; ledger-edit.js covers
-       switching the type while the page is open. #}
-    <div class="field" id="merchant-field" {% if is_transfer %}hidden{% endif %}>
-      <label class="field__label" for="merchant_id">Merchant</label>
-      <select class="input" id="merchant_id" name="merchant_id">
-        <option value="">None</option>
-        {% for m in merchants %}
-          <option value="{{ m.id }}" {{ selected(values.get('merchant_id'), m.id) }}>{{ m.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div class="grid-2">
       <div class="field">
-        <label class="field__label" for="category_id">Category</label>
-        <select class="input" id="category_id" name="category_id">
-          <option value="">None</option>
-          {% for c in categories %}
-            <option value="{{ c.id }}" {{ selected(values.get('category_id'), c.id) }}>
-              {% if c.parent_name %}{{ c.parent_name }} › {% endif %}{{ c.name }}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label class="field__label" for="account_id">Account</label>
+        <label class="field__label" for="account_id">
+          <span data-when-transfer {% if not is_transfer %}hidden{% endif %}>Out of</span>
+          <span data-when-not-transfer {% if is_transfer %}hidden{% endif %}>Account</span>
+        </label>
         <select class="input" id="account_id" name="account_id">
           {% for a in accounts %}
             <option value="{{ a.id }}" {{ selected(values.get('account_id'), a.id) }}>{{ a.name }}</option>
           {% endfor %}
         </select>
       </div>
+
+      {# Transfer only. A transfer moves money between two of your own accounts,
+         so this pair is the whole of it — and on anything else the two boxes
+         are noise the server ignores. #}
+      <div id="transfer-fields" {% if not is_transfer %}hidden{% endif %}>
+        <div class="field">
+          <label class="field__label" for="counter_account_id">Into</label>
+          <select class="input" id="counter_account_id" name="counter_account_id">
+            <option value="">—</option>
+            {% for a in accounts %}
+              <option value="{{ a.id }}" data-currency="{{ a.currency }}"
+                      {{ selected(values.get('counter_account_id'), a.id) }}>{{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {# data-currency above is what lets the script notice the destination has
+           changed currency and wipe the number below, which would otherwise be
+           about a currency it is no longer in. #}
+        <div class="field" id="counter-amount-field">
+          <label class="field__label" for="counter_amount">Amount that arrived</label>
+          <input class="input num" id="counter_amount" name="counter_amount" type="text"
+                 inputmode="decimal" value="{{ values.get('counter_amount', '') }}" />
+          <p class="field__hint">
+            Only when the two accounts are in different currencies — what actually
+            landed, at the rate the bank gave you.
+          </p>
+        </div>
+      </div>
+
+      {# Merchant and online/in-person are both about a counterparty, and a
+         transfer has none. They travel together. #}
+      <div id="party-fields" {% if is_transfer %}hidden{% endif %}>
+        <div class="field">
+          <label class="field__label" for="merchant_id">Merchant</label>
+          <select class="input" id="merchant_id" name="merchant_id">
+            <option value="">None</option>
+            {% for m in merchants %}
+              <option value="{{ m.id }}" {{ selected(values.get('merchant_id'), m.id) }}>{{ m.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label class="field__label" for="category_id">Category</label>
+            <select class="input" id="category_id" name="category_id">
+              <option value="">None</option>
+              {% for c in categories %}
+                <option value="{{ c.id }}" {{ selected(values.get('category_id'), c.id) }}>
+                  {% if c.parent_name %}{{ c.parent_name }} › {% endif %}{{ c.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label class="field__label" for="is_online">Where</label>
+            <select class="input" id="is_online" name="is_online">
+              <option value="0" {% if not values.get('is_online') %}selected{% endif %}>In person</option>
+              <option value="1" {% if values.get('is_online') %}selected{% endif %}>Online</option>
+            </select>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div class="grid-2">
+    <div class="card card--pad">
+      <p class="section__title">Notes</p>
+
       <div class="field">
-        <label class="field__label" for="counter_account_id">Into account (transfers)</label>
-        <select class="input" id="counter_account_id" name="counter_account_id">
-          <option value="">—</option>
-          {% for a in accounts %}
-            <option value="{{ a.id }}" data-currency="{{ a.currency }}"
-                    {{ selected(values.get('counter_account_id'), a.id) }}>{{ a.name }}</option>
-          {% endfor %}
-        </select>
+        <label class="field__label" for="note">Note</label>
+        <input class="input" id="note" name="note" type="text" maxlength="500"
+               placeholder="Optional" value="{{ values.get('note') or '' }}" />
       </div>
-      {# data-currency above is what lets the script notice the destination has
-         changed currency and wipe the number below, which is now about a
-         currency it is no longer in. #}
-      <div class="field" id="counter-amount-field">
-        <label class="field__label" for="counter_amount">Amount that arrived</label>
-        <input class="input num" id="counter_amount" name="counter_amount" type="text" inputmode="decimal"
-               value="{{ values.get('counter_amount', '') }}" />
-      </div>
-    </div>
 
-    <div class="grid-2">
-      <div class="field">
-        <label class="field__label" for="is_online">Where</label>
-        <select class="input" id="is_online" name="is_online">
-          <option value="0" {% if not values.get('is_online') %}selected{% endif %}>In person</option>
-          <option value="1" {% if values.get('is_online') %}selected{% endif %}>Online</option>
-        </select>
-      </div>
-      <div class="field">
-        <label class="field__label" for="fx_rate_to_base">Rate → {{ base }}</label>
-        <input class="input num" id="fx_rate_to_base" name="fx_rate_to_base" type="text"
-               inputmode="decimal" value="{{ values.get('fx_rate_to_base') or '' }}" />
-      </div>
-    </div>
+      {# Hidden rather than removed once photos exist. The box would be a control
+         that is refused the moment you use it, and a control that lies about what
+         it does is worse than one that is not there — the sentence underneath
+         says why it went. #}
+      {% if attachments %}
+        <p class="field__hint">
+          This entry has {{ attachments|length }} receipt photo{{ 's' if attachments|length > 1 }},
+          so it cannot be marked as having none. Remove
+          {{ 'them' if attachments|length > 1 else 'it' }} below first.
+        </p>
+      {% else %}
+        <label class="check" for="receiptless">
+          <input type="checkbox" id="receiptless" name="receiptless" value="1"
+                 {% if values.get('receiptless') %}checked{% endif %} />
+          <span>No receipt for this</span>
+        </label>
+      {% endif %}
 
-    <div class="field">
-      <label class="field__label" for="note">Note</label>
-      <input class="input" id="note" name="note" type="text" maxlength="500"
-             value="{{ values.get('note') or '' }}" />
-    </div>
-
-    {# Hidden rather than removed once photos exist. The box would be a control
-       that is refused the moment you use it, and a control that lies about what
-       it does is worse than one that is not there — the sentence underneath
-       says why it went. #}
-    {% if attachments %}
-      <p class="hint">
-        This entry has {{ attachments|length }} receipt photo{{ 's' if attachments|length > 1 }},
-        so it cannot be marked as having none. Remove
-        {{ 'them' if attachments|length > 1 else 'it' }} below first.
-      </p>
-    {% else %}
-      <label class="check" for="receiptless">
-        <input type="checkbox" id="receiptless" name="receiptless" value="1"
-               {% if values.get('receiptless') %}checked{% endif %} />
-        <span>No receipt for this</span>
+      <label class="check" for="is_shared">
+        <input type="checkbox" id="is_shared" name="is_shared" value="1"
+               {% if values.get('is_shared') %}checked{% endif %} />
+        <span>Visible to the household</span>
       </label>
-    {% endif %}
+    </div>
 
-    <label class="check" for="is_shared">
-      <input type="checkbox" id="is_shared" name="is_shared" value="1"
-             {% if values.get('is_shared') %}checked{% endif %} />
-      <span>Visible to the household</span>
-    </label>
-
-    <button type="submit" class="btn btn--primary">Save changes</button>
+    <button type="submit" class="btn btn--primary btn--wide">Save changes</button>
   </form>
 
   {# ---- receipts ---------------------------------------------------------
-     Its own form, and its own POST, for the same reason delete has one: adding
-     a photo is not a draft edit, and it must not be lost because the fields
-     above happen to fail validation. Each photo's remove button is a separate
-     form again, so Enter inside this one can never reach it. #}
+     Its own form, and its own POST: adding a photo is not a draft edit, and it
+     must not be lost because a field above happens to fail validation. Each
+     photo's remove button is a separate form again, so Enter inside this one
+     can never reach it. #}
   <section class="card card--pad">
     <h2 class="section__title">Receipts</h2>
 
@@ -195,7 +238,7 @@
         {% endfor %}
       </ul>
     {% else %}
-      <p class="hint">No photo attached to this entry.</p>
+      <p class="field__hint">No photo attached to this entry.</p>
     {% endif %}
 
     <form method="post" enctype="multipart/form-data" class="addphoto"

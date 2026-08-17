@@ -588,3 +588,56 @@ account can be corrected in Setup → Accounts, which will now refuse to save it
 that way. Worth knowing as a general shape — a constraint introduced later only
 binds what happens next, and nothing in this project audits history when a rule
 arrives.
+
+---
+
+## Three nitpicks, and what each one turned out to be about
+
+### A third colour
+
+Income was teal, spending had just gone red, and transfers were `--text-muted`.
+Grey was fine when it meant "the quiet one" among two; next to a red it reads as
+*disabled*. Transfers now have `--move`, a violet, defined in both schemes.
+
+Three directions, three deliberate colours, none of them a default.
+
+### The confirmation would not leave
+
+The toast is `position: fixed` above the tab bar, and it stayed for as long as
+the page was open — which on the one screen built to be used standing at a till
+means it sits on top of whatever you reach for next.
+
+It now retires itself after twelve seconds, and stops counting down if you point
+at it or tab into it, because reaching for something is the clearest possible
+signal that you want it. There is also a `×`, which is a plain link back to the
+form without `?saved=` — so a browser with scripting off has the same exit, and
+anyone who wants it gone now does not have to wait.
+
+Worth being clear that Undo did not get shorter: it still works for ten minutes
+server-side, and an entry can always be edited or deleted from Entries. The
+toast leaving is the *shortcut* expiring, not the entry setting.
+
+### The edit screen was a wall
+
+Twelve fields, all visible, three or four of them meaningless for whatever you
+were actually editing. A plain spend was being asked "into account?", "amount
+that arrived?" and "rate → EGP?". A transfer was offered a merchant it can never
+have, and an in-person/online toggle for a counterparty that does not exist.
+
+Two changes, and the first is the one that mattered: **the fields that do not
+apply are gone rather than empty.** An empty box is a question; a question about
+something that cannot be true is noise, and noise is what "cluttered" means. A
+plain spend now shows eight fields and a transfer shows seven, from the same
+template.
+
+The second is grouping — Money, then what it was, then Notes — so what remains
+reads as three short cards instead of one column of twelve.
+
+Everything is decided server-side from the stored row, which is the state that
+matters and the one that survives scripting being off: open a transfer and the
+transfer fields are there; open a spend and they never were. `ledger-edit.js`
+only keeps up when the type or currency is changed *while the page is open*,
+which the server cannot see until you save.
+
+Nothing about what gets stored changed. It is still one form, one POST, and
+`transactions._prepare()` — the same function the entry screen goes through.

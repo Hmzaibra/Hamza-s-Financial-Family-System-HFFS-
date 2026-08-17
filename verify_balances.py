@@ -378,18 +378,26 @@ def main() -> int:
     transfer_id = rows[0][0] if rows else None
     with app.test_client() as c:
         login(c)
+        # Merchant and in-person/online both describe a counterparty, so they
+        # travel together in one group — a transfer has neither.
         if transfer_id:
             page = c.get(f"/transactions/{transfer_id}/edit").data
             check("the merchant field is hidden on a transfer, with JavaScript off",
-                  b'id="merchant-field" hidden' in page)
+                  b'id="party-fields" hidden' in page)
+            check("and the transfer's own pair is shown instead",
+                  b'id="transfer-fields" hidden' not in page)
         spend = sql("SELECT id FROM transactions WHERE direction = 'spend' LIMIT 1")[0][0]
         page = c.get(f"/transactions/{spend}/edit").data
         check("and shown on a spend, where it means something",
-              b'id="merchant-field" hidden' not in page and b'id="merchant-field"' in page)
+              b'id="party-fields" hidden' not in page and b'id="party-fields"' in page)
+        check("while a spend is not asked which account it went into",
+              b'id="transfer-fields" hidden' in page)
+        check("nor for a rate to a currency it is already in",
+              b'id="fx-field" hidden' in page)
 
         js = Path("static/js/ledger-edit.js").read_text(encoding="utf-8")
         check("the script covers changing the type while the page is open",
-              "syncMerchant" in js)
+              "syncDirection" in js and "data-when-transfer" in js)
         check("and clears an arriving amount that is about a currency it left behind",
               "counterAmount.value = \"\"" in js)
         check("the destination options carry the currency that makes that possible",
